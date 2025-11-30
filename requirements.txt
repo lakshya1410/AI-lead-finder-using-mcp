@@ -1,7 +1,9 @@
-Flask==3.0.0
+flask==3.0.0
 flask-cors==4.0.0
+# loosen langchain pins so pip can resolve a compatible langchain-core
+langchain-openai
+langgraph
+langchain-mcp-adapters
 python-dotenv==1.0.0
-gunicorn==20.1.0
-
-# Optional / advanced dependencies (LLM, MCP) moved to `requirements-llm.txt`.
-# If you enable full MCP/LLM features on Render, install those as well.
+aiohttp==3.9.0
+# `asyncio` is part of the Python stdlib for modern Python; remove strict pip package
