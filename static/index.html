@@ -1,393 +1,346 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Lead Generation System</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            /* Changed background from purple gradient to solid black */
-            background: #000000;
-            min-height: 100vh;
-            padding: 20px;
-            color: #ffffff;
-        }
-
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-        }
-
-        header {
-            text-align: center;
-            color: white;
-            margin-bottom: 40px;
-        }
-
-        header h1 {
-            font-size: 2.5em;
-            margin-bottom: 10px;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
-        }
-
-        header p {
-            font-size: 1.1em;
-            opacity: 0.9;
-        }
-
-        .main-content {
-            display: grid;
-            grid-template-columns: 400px 1fr;
-            gap: 30px;
-            align-items: start;
-        }
-
-        .form-section {
-            background: white;
-            padding: 30px;
-            border-radius: 15px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-        }
-
-        .results-section {
-            background: white;
-            padding: 30px;
-            border-radius: 15px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-            min-height: 500px;
-        }
-
-        h2 {
-            color: #667eea;
-            margin-bottom: 20px;
-            font-size: 1.5em;
-        }
-
-        .form-group {
-            margin-bottom: 20px;
-        }
-
-        label {
-            display: block;
-            margin-bottom: 8px;
-            color: #333;
-            font-weight: 600;
-            font-size: 0.9em;
-        }
-
-        input, textarea, select {
-            width: 100%;
-            padding: 12px;
-            border: 2px solid #e0e0e0;
-            border-radius: 8px;
-            font-size: 14px;
-            transition: border-color 0.3s;
-        }
-
-        input:focus, textarea:focus, select:focus {
-            outline: none;
-            border-color: #03081f;
-        }
-
-        textarea {
-            resize: vertical;
-            min-height: 80px;
-        }
-
-        .budget-group {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-        }
-
-        button {
-            width: 100%;
-            padding: 15px;
-            background: linear-gradient(135deg, #09102c 0%, #0d0318 100%);
-            color: white;
-            border: none;
-            border-radius: 8px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-
-        button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
-        }
-
-        button:disabled {
-            background: #ccc;
-            cursor: not-allowed;
-            transform: none;
-        }
-
-        .loading {
-            text-align: center;
-            padding: 40px;
-        }
-
-        .spinner {
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #667eea;
-            border-radius: 50%;
-            width: 50px;
-            height: 50px;
-            animation: spin 1s linear infinite;
-            margin: 0 auto 20px;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        .results-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 25px;
-            padding-bottom: 15px;
-            border-bottom: 2px solid #e0e0e0;
-        }
-
-        .lead-card {
-            background: #f8f9fa;
-            padding: 25px;
-            border-radius: 10px;
-            margin-bottom: 20px;
-            border-left: 4px solid #667eea;
-            transition: transform 0.2s, box-shadow 0.2s;
-        }
-
-        .lead-card:hover {
-            transform: translateX(5px);
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-        }
-
-        .lead-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: start;
-            margin-bottom: 15px;
-        }
-
-        .lead-info h3 {
-            color: #333;
-            margin-bottom: 5px;
-        }
-
-        .lead-info p {
-            color: #666;
-            font-size: 0.9em;
-        }
-
-        .confidence-badge {
-            padding: 8px 16px;
-            border-radius: 20px;
-            font-weight: 600;
-            font-size: 0.9em;
-        }
-
-        .grade-A { background: #d4edda; color: #155724; }
-        .grade-B { background: #d1ecf1; color: #0c5460; }
-        .grade-C { background: #fff3cd; color: #856404; }
-        .grade-D { background: #f8d7da; color: #721c24; }
-
-        .details-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-            margin-top: 15px;
-        }
-
-        .detail-section {
-            background: white;
-            padding: 15px;
-            border-radius: 8px;
-        }
-
-        .detail-section h4 {
-            color: #0a0e24;
-            margin-bottom: 10px;
-            font-size: 1em;
-        }
-
-        .detail-item {
-            margin-bottom: 8px;
-            font-size: 0.9em;
-        }
-
-        .detail-label {
-            font-weight: 600;
-            color: #555;
-        }
-
-        .detail-value {
-            color: #333;
-        }
-
-        .ai-insights {
-            background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
-            padding: 15px;
-            border-radius: 8px;
-            margin-top: 15px;
-        }
-
-        .ai-insights h4 {
-            color: #667eea;
-            margin-bottom: 10px;
-        }
-
-        .insight-item {
-            padding: 8px;
-            margin-bottom: 5px;
-            background: white;
-            border-radius: 5px;
-            font-size: 0.9em;
-        }
-
-        .recommendation {
-            background: #fff;
-            padding: 12px;
-            border-radius: 5px;
-            margin-top: 10px;
-            font-weight: 600;
-            color: #667eea;
-        }
-
-        .empty-state {
-            text-align: center;
-            padding: 60px 20px;
-            color: #999;
-        }
-
-        .empty-state svg {
-            width: 100px;
-            height: 100px;
-            margin-bottom: 20px;
-            opacity: 0.5;
-        }
-
-        .stats-bar {
-            display: flex;
-            gap: 15px;
-            margin-bottom: 20px;
-        }
-
-        .stat-card {
-            flex: 1;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 15px;
-            border-radius: 8px;
-            text-align: center;
-        }
-
-        .stat-value {
-            font-size: 2em;
-            font-weight: 700;
-        }
-
-        .stat-label {
-            font-size: 0.9em;
-            opacity: 0.9;
-        }
-
-        @media (max-width: 1024px) {
-            .main-content {
-                grid-template-columns: 1fr;
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Powered Lead Finder</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Fonts: Space Mono for the Vibe, Inter for readability -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'sans-serif'],
+              mono: ['Space Mono', 'monospace'],
+            },
+            colors: {
+              bg: '#F3F0E7',      // The "Vibe" Beige
+              surface: '#FFFFFF', // Clean white for cards
+              ink: '#18181B',     // Near black text
+              border: '#E4E4E7',  // Subtle border for inputs
+              accent: '#18181B',  // Black accent
+            },
+            boxShadow: {
+              'hard': '4px 4px 0px 0px #18181B',
+              'hard-sm': '2px 2px 0px 0px #18181B',
+            },
+            keyframes: {
+                shimmer: {
+                    '0%': { transform: 'translateX(-100%)' },
+                    '100%': { transform: 'translateX(100%)' }
+                }
+            },
+            animation: {
+                shimmer: 'shimmer 1.5s infinite linear'
             }
+          }
         }
+      }
+    </script>
+    <style>
+        /* Minimal Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #D4D4D8; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #71717A; }
+        
+        /* Brutalist Input Styles */
+        .input-brutal {
+            @apply w-full bg-white border border-ink text-ink text-sm px-4 py-3 font-sans placeholder-gray-400 focus:outline-none focus:shadow-hard-sm focus:-translate-y-[1px] focus:-translate-x-[1px] transition-all duration-100 ease-out;
+        }
+        
+        .label-brutal {
+            @apply block text-[10px] font-bold text-ink mb-1.5 uppercase tracking-wider font-mono opacity-80;
+        }
+
+        /* Documentation Markdown Styling */
+        .prose h2 { @apply text-lg font-mono font-bold mt-6 mb-3 border-b border-ink/10 pb-2; }
+        .prose h3 { @apply text-sm font-bold mt-4 mb-2 uppercase tracking-wide; }
+        .prose p { @apply text-sm leading-relaxed mb-4 text-gray-700; }
+        .prose ul { @apply list-disc list-inside text-sm mb-4 space-y-1 text-gray-700; }
+        .prose code { @apply bg-gray-200 px-1 py-0.5 rounded text-xs font-mono text-pink-600; }
+        .prose pre { @apply bg-ink text-white p-3 rounded-sm text-xs overflow-x-auto mb-4 font-mono; }
+        .prose pre code { @apply bg-transparent text-white p-0; }
+        .prose a { @apply text-blue-600 underline decoration-1 underline-offset-2; }
     </style>
+<script type="importmap">
+{
+  "imports": {
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.555.0",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/"
+  }
+}
+</script>
 </head>
-<body>
-    <div class="container">
-        <header>
-            <h1>🎯 AI Lead Generation System</h1>
-            <p>Powered by Bright Data MCP & OpenAI</p>
-        </header>
+<body class="bg-bg text-ink h-screen flex flex-col font-sans overflow-hidden selection:bg-ink selection:text-white">
 
-        <div class="main-content">
-            <!-- Form Section -->
-            <div class="form-section">
-                <h2>Define Your ICP</h2>
-                <form id="icpForm">
-                    <div class="form-group">
-                        <label for="icpName">ICP Name</label>
-                        <input type="text" id="icpName" placeholder="e.g., Enterprise SaaS Buyers" required>
-                    </div>
+    <!-- Header -->
+    <header class="flex-none h-16 border-b border-ink flex items-center justify-between px-6 bg-bg z-30">
+        <div class="flex items-center gap-3">
+            <div class="w-8 h-8 bg-ink text-white flex items-center justify-center font-mono font-bold text-xl rounded-sm shadow-hard-sm">
+                AI
+            </div>
+            <div>
+                <h1 class="font-mono font-bold text-base tracking-tight leading-none">LEAD_FINDER_MCP</h1>
+                <p class="text-[10px] font-mono opacity-60 leading-none mt-1">V1.0.4 // SYSTEM READY</p>
+            </div>
+        </div>
+        <div class="flex items-center gap-6">
+            <div class="hidden md:flex items-center gap-2 text-[10px] font-mono opacity-60 border border-ink/20 px-2 py-1 rounded-full bg-white/50">
+                <span class="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></span>
+                <span>AGENT_ONLINE</span>
+            </div>
+            <button id="docsToggleBtn" class="font-mono text-xs font-bold hover:underline decoration-2 underline-offset-4 flex items-center gap-1 group">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="square" stroke-linejoin="miter" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                <span>DOCUMENTATION</span>
+            </button>
+        </div>
+    </header>
 
-                    <div class="form-group">
-                        <label for="companySize">Company Size</label>
-                        <select id="companySize" required>
-                            <option value="">Select size</option>
-                            <option value="1-10">1-10 employees</option>
-                            <option value="11-50">11-50 employees</option>
-                            <option value="51-200">51-200 employees</option>
-                            <option value="201-500">201-500 employees</option>
-                            <option value="501-1000">501-1000 employees</option>
-                            <option value="1000+">1000+ employees</option>
-                        </select>
-                    </div>
+    <!-- Main Layout -->
+    <div class="flex-1 flex overflow-hidden relative">
+        
+        <!-- Sidebar: ICP Form (Control Panel) -->
+        <aside class="w-[450px] bg-[#EBE8DE] border-r border-ink flex flex-col z-10 overflow-hidden shrink-0">
+            
+            <div class="p-5 border-b border-ink/10 bg-white/30 backdrop-blur-sm">
+                <h2 class="font-mono font-bold text-sm uppercase tracking-wide flex items-center gap-2">
+                    <span class="w-2 h-2 bg-ink"></span>
+                    Configuration Parameters
+                </h2>
+            </div>
 
-                    <div class="form-group">
-                        <label for="industry">Industry</label>
-                        <input type="text" id="industry" placeholder="e.g., Technology, Healthcare" required>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="jobTitle">Target Job Title(s)</label>
-                        <input type="text" id="jobTitle" placeholder="e.g., CTO, VP Engineering" required>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="region">Geographic Region</label>
-                        <input type="text" id="region" placeholder="e.g., United States, Europe" required>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="technology">Technology Used</label>
-                        <input type="text" id="technology" placeholder="e.g., AWS, Salesforce, React" required>
-                    </div>
-
-                    <div class="form-group">
-                        <label for="painPoints">Pain Points</label>
-                        <textarea id="painPoints" placeholder="Describe the problems your solution solves..." required></textarea>
-                    </div>
-
-                    <div class="form-group">
-                        <label>Budget Range ($)</label>
-                        <div class="budget-group">
-                            <input type="number" id="minBudget" placeholder="Min" min="0" required>
-                            <input type="number" id="maxBudget" placeholder="Max" min="0" required>
+            <div class="flex-1 overflow-y-auto p-5 scroll-smooth">
+                <form id="icpForm" class="space-y-8">
+                    
+                    <!-- Group 1: Identity -->
+                    <div class="relative pl-4 border-l-2 border-ink/20">
+                        <div class="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-ink border-4 border-[#EBE8DE]"></div>
+                        <h3 class="text-xs font-mono font-bold text-gray-500 uppercase mb-4">01. Target Identity</h3>
+                        
+                        <div class="space-y-4">
+                            <div>
+                                <label class="label-brutal" for="icpName">ICP Identifier Name</label>
+                                <input type="text" id="icpName" placeholder="e.g. Enterprise SaaS Decision Makers" required class="input-brutal">
+                            </div>
+                            
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="label-brutal" for="industry">Industry Sector</label>
+                                    <input type="text" id="industry" placeholder="e.g. Fintech" required class="input-brutal">
+                                </div>
+                                <div>
+                                    <label class="label-brutal" for="region">Geo Region</label>
+                                    <input type="text" id="region" placeholder="e.g. North America" required class="input-brutal">
+                                </div>
+                            </div>
                         </div>
                     </div>
 
-                    <button type="submit" id="searchBtn">
-                        🔍 Search for Leads
-                    </button>
+                    <!-- Group 2: Specs -->
+                    <div class="relative pl-4 border-l-2 border-ink/20">
+                        <div class="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-ink border-4 border-[#EBE8DE]"></div>
+                        <h3 class="text-xs font-mono font-bold text-gray-500 uppercase mb-4">02. Company Specs</h3>
+
+                        <div class="space-y-4">
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="label-brutal" for="companySize">Org Size</label>
+                                    <div class="relative">
+                                        <select id="companySize" required class="input-brutal appearance-none cursor-pointer">
+                                            <option value="">SELECT SIZE</option>
+                                            <option value="1-10">1-10 Employees</option>
+                                            <option value="11-50">11-50 Employees</option>
+                                            <option value="51-200">51-200 Employees</option>
+                                            <option value="201-500">201-500 Employees</option>
+                                            <option value="501-1000">501-1k Employees</option>
+                                            <option value="1000+">1000+ Employees</option>
+                                        </select>
+                                        <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-ink">
+                                            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="square" stroke-linejoin="miter" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="label-brutal" for="jobTitle">Job Role</label>
+                                    <input type="text" id="jobTitle" placeholder="e.g. CTO" required class="input-brutal">
+                                </div>
+                            </div>
+                            
+                            <div>
+                                <label class="label-brutal" for="technology">Tech Stack</label>
+                                <input type="text" id="technology" placeholder="e.g. AWS, React, Python" required class="input-brutal">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Group 3: Constraints -->
+                    <div class="relative pl-4 border-l-2 border-ink/20 pb-2">
+                        <div class="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-ink border-4 border-[#EBE8DE]"></div>
+                        <h3 class="text-xs font-mono font-bold text-gray-500 uppercase mb-4">03. Context & Constraints</h3>
+
+                        <div class="space-y-4">
+                            <div>
+                                <label class="label-brutal">Budget Range (USD)</label>
+                                <div class="flex items-center">
+                                    <input type="number" id="minBudget" placeholder="MIN" class="input-brutal w-1/2 border-r-0 focus:z-10 focus:relative">
+                                    <div class="bg-ink text-white font-mono text-xs px-2 py-3.5 font-bold">TO</div>
+                                    <input type="number" id="maxBudget" placeholder="MAX" class="input-brutal w-1/2 border-l-0 focus:z-10 focus:relative">
+                                </div>
+                            </div>
+                            
+                            <div>
+                                <label class="label-brutal" for="painPoints">Key Pain Points</label>
+                                <textarea id="painPoints" placeholder="What problems are they trying to solve?" required 
+                                    class="input-brutal min-h-[100px] resize-y"></textarea>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Spacer for sticky button -->
+                    <div class="h-10"></div>
                 </form>
             </div>
 
-            <!-- Results Section -->
-            <div class="results-section">
-                <div id="resultsContent">
-                    <div class="empty-state">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                        </svg>
-                        <h3>Ready to Find Leads</h3>
-                        <p>Fill in your ICP criteria and click "Search for Leads" to get started</p>
+            <!-- Sticky Action Button -->
+            <div class="p-5 border-t border-ink bg-white z-20 shadow-[0_-10px_20px_rgba(0,0,0,0.05)]">
+                <button type="submit" form="icpForm" id="searchBtn" class="w-full bg-ink text-white font-mono font-bold text-sm py-4 px-6 shadow-hard hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px] transition-all flex items-center justify-between group">
+                    <span class="tracking-wider">RUN_LEAD_DISCOVERY</span>
+                    <svg class="w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="square" stroke-linejoin="miter" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content: Results Grid -->
+        <main class="flex-1 bg-bg p-8 overflow-y-auto relative z-0">
+            <div class="max-w-5xl mx-auto">
+                
+                <!-- Stats Bar -->
+                <div id="statsBar" class="grid grid-cols-3 gap-6 mb-12 hidden opacity-0 transition-opacity duration-500">
+                    <div class="bg-white border border-ink p-5 shadow-hard-sm">
+                        <div class="flex justify-between items-start mb-2">
+                            <span class="font-mono text-[10px] font-bold text-gray-500 uppercase tracking-widest">Database Hits</span>
+                            <svg class="w-4 h-4 text-ink opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+                        </div>
+                        <span class="font-mono text-4xl font-bold tracking-tighter" id="statTotal">0</span>
+                    </div>
+                    <div class="bg-white border border-ink p-5 shadow-hard-sm">
+                        <div class="flex justify-between items-start mb-2">
+                            <span class="font-mono text-[10px] font-bold text-gray-500 uppercase tracking-widest">High Intent</span>
+                            <svg class="w-4 h-4 text-green-600 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                        </div>
+                        <span class="font-mono text-4xl font-bold tracking-tighter text-green-700" id="statGradeA">0</span>
+                    </div>
+                    <div class="bg-white border border-ink p-5 shadow-hard-sm">
+                        <div class="flex justify-between items-start mb-2">
+                            <span class="font-mono text-[10px] font-bold text-gray-500 uppercase tracking-widest">Avg Match</span>
+                            <svg class="w-4 h-4 text-indigo-600 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
+                        </div>
+                        <span class="font-mono text-4xl font-bold tracking-tighter text-indigo-700" id="statScore">0%</span>
+                    </div>
+                </div>
+
+                <!-- Results Content -->
+                <div id="resultsContent" class="space-y-6 pb-20">
+                    
+                    <!-- Empty State -->
+                    <div class="h-[60vh] flex flex-col items-center justify-center text-center">
+                        <div class="w-24 h-24 border-2 border-ink border-dashed rounded-full flex items-center justify-center mb-6 opacity-20">
+                            <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="square" stroke-linejoin="miter" stroke-width="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                        </div>
+                        <h3 class="font-mono text-xl font-bold mb-2">AWAITING_INPUT</h3>
+                        <p class="font-sans text-sm text-gray-500 max-w-sm mx-auto">
+                            Configure your Ideal Customer Profile (ICP) in the left panel to begin the autonomous lead discovery process.
+                        </p>
+                    </div>
+
+                </div>
+            </div>
+        </main>
+
+        <!-- Documentation Slide-over -->
+        <div id="docsPanel" class="fixed inset-0 z-50 invisible transition-all duration-300">
+            <!-- Backdrop -->
+            <div id="docsBackdrop" class="absolute inset-0 bg-ink/30 backdrop-blur-sm opacity-0 transition-opacity duration-300"></div>
+            
+            <!-- Panel -->
+            <div id="docsContent" class="absolute right-0 top-0 bottom-0 w-[600px] bg-[#F3F0E7] border-l border-ink shadow-2xl flex flex-col transform translate-x-full transition-transform duration-300 ease-out">
+                
+                <!-- Panel Header -->
+                <div class="flex-none p-6 border-b border-ink/10 flex items-center justify-between bg-white/50">
+                    <div class="flex items-center gap-3">
+                        <div class="w-8 h-8 bg-ink text-white flex items-center justify-center font-mono font-bold text-lg rounded-sm">?</div>
+                        <h2 class="font-mono font-bold text-lg">SYSTEM_MANUAL</h2>
+                    </div>
+                    <button id="closeDocsBtn" class="w-8 h-8 flex items-center justify-center hover:bg-ink hover:text-white transition-colors border border-transparent hover:border-ink rounded-sm">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="square" stroke-linejoin="miter" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                    </button>
+                </div>
+
+                <!-- Panel Content (Scrollable) -->
+                <div class="flex-1 overflow-y-auto p-8 prose max-w-none">
+                    <div class="mb-8">
+                        <h1 class="text-3xl font-bold font-mono mb-2">🎯 AI Lead Generation System</h1>
+                        <p class="text-gray-600">A complete B2B lead generation system powered by Bright Data's MCP server and OpenAI.</p>
+                    </div>
+
+                    <div class="bg-white p-4 border border-ink/10 rounded-sm mb-6">
+                        <h3 class="!mt-0">🌟 Core Features</h3>
+                        <ul class="!mb-0">
+                            <li><strong>Intelligent Lead Discovery</strong>: AI search across LinkedIn & web</li>
+                            <li><strong>Confidence Scoring</strong>: 0-100% match analysis</li>
+                            <li><strong>ICP Matching</strong>: 8+ criteria validation</li>
+                            <li><strong>Contact Extraction</strong>: Email, phone & social profiles</li>
+                        </ul>
+                    </div>
+
+                    <h2>🚀 Quick Start</h2>
+                    <p>Follow these steps to get started with the system:</p>
+                    
+                    <h3>1. Define Your ICP</h3>
+                    <p>Fill in the form on the left with specific criteria:</p>
+                    <ul>
+                        <li><strong>ICP Name</strong>: e.g., "Enterprise SaaS Decision Makers"</li>
+                        <li><strong>Company Size</strong>: Match your target segment</li>
+                        <li><strong>Tech Stack</strong>: Specific tools they use (e.g. "Salesforce")</li>
+                    </ul>
+
+                    <h3>2. Search Process</h3>
+                    <p>Click <strong>RUN_LEAD_DISCOVERY</strong>. The system will:</p>
+                    <ol class="list-decimal list-inside text-sm mb-4 space-y-1 text-gray-700">
+                        <li>Query Bright Data for companies matching criteria</li>
+                        <li>Find decision makers via LinkedIn data</li>
+                        <li>Use OpenAI to score relevance against your ICP</li>
+                    </ol>
+
+                    <h2>🔧 Configuration</h2>
+                    <p>This system uses a Python backend (<code>app.py</code>). Ensure your <code>.env</code> file is configured:</p>
+                    <pre><code>BRIGHT_DATA_API_TOKEN=your_token
+OPENAI_API_KEY=sk-proj-key</code></pre>
+
+                    <h2>📊 Understanding Results</h2>
+                    <div class="grid grid-cols-2 gap-4 my-4">
+                        <div class="bg-green-50 p-3 border border-green-200 rounded">
+                            <div class="font-bold text-green-800 text-xs uppercase mb-1">Grade A (90%+)</div>
+                            <div class="text-xs text-green-700">Perfect match. High priority for outreach.</div>
+                        </div>
+                        <div class="bg-yellow-50 p-3 border border-yellow-200 rounded">
+                            <div class="font-bold text-yellow-800 text-xs uppercase mb-1">Grade B (75-89%)</div>
+                            <div class="text-xs text-yellow-700">Good fit, may miss 1-2 non-critical criteria.</div>
+                        </div>
+                    </div>
+
+                    <h2>🆘 Troubleshooting</h2>
+                    <ul>
+                        <li><strong>No results?</strong> Try broadening your region or industry.</li>
+                        <li><strong>Error?</strong> Check backend console for API limits.</li>
+                    </ul>
+
+                    <div class="mt-8 pt-8 border-t border-ink/10 text-xs text-gray-400 font-mono text-center">
+                        v1.0.4 • Powered by Bright Data MCP & OpenAI
                     </div>
                 </div>
             </div>
@@ -399,7 +352,37 @@
         const form = document.getElementById('icpForm');
         const resultsContent = document.getElementById('resultsContent');
         const searchBtn = document.getElementById('searchBtn');
+        const statsBar = document.getElementById('statsBar');
 
+        // Docs Logic
+        const docsToggleBtn = document.getElementById('docsToggleBtn');
+        const closeDocsBtn = document.getElementById('closeDocsBtn');
+        const docsPanel = document.getElementById('docsPanel');
+        const docsBackdrop = document.getElementById('docsBackdrop');
+        const docsContent = document.getElementById('docsContent');
+
+        function toggleDocs(show) {
+            if (show) {
+                docsPanel.classList.remove('invisible');
+                // slight delay to allow display:block to apply before opacity transition
+                setTimeout(() => {
+                    docsBackdrop.classList.remove('opacity-0');
+                    docsContent.classList.remove('translate-x-full');
+                }, 10);
+            } else {
+                docsBackdrop.classList.add('opacity-0');
+                docsContent.classList.add('translate-x-full');
+                setTimeout(() => {
+                    docsPanel.classList.add('invisible');
+                }, 300);
+            }
+        }
+
+        docsToggleBtn.addEventListener('click', () => toggleDocs(true));
+        closeDocsBtn.addEventListener('click', () => toggleDocs(false));
+        docsBackdrop.addEventListener('click', () => toggleDocs(false));
+
+        // Form Logic
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
             await searchLeads();
@@ -418,23 +401,30 @@
                 max_budget: document.getElementById('maxBudget').value
             };
 
-            // Show loading
+            // Loading UI
             searchBtn.disabled = true;
-            searchBtn.textContent = '⏳ Searching...';
+            searchBtn.classList.add('opacity-80', 'cursor-not-allowed');
+            searchBtn.innerHTML = `
+                <span class="animate-pulse">PROCESSING_REQUEST...</span>
+                <div class="h-2 w-2 bg-white rounded-full animate-bounce"></div>
+            `;
+            
             resultsContent.innerHTML = `
-                <div class="loading">
-                    <div class="spinner"></div>
-                    <p>AI is searching for leads matching your ICP...</p>
-                    <p style="font-size: 0.9em; color: #666; margin-top: 10px;">This may take 30-60 seconds</p>
+                <div class="h-[60vh] flex flex-col items-center justify-center">
+                    <div class="font-mono text-sm font-bold mb-4 tracking-widest">SEARCHING DATABASE</div>
+                    <div class="w-64 h-2 bg-gray-200 overflow-hidden border border-ink rounded-sm">
+                        <div class="h-full bg-ink animate-shimmer w-1/2"></div>
+                    </div>
+                    <p class="mt-4 font-mono text-xs text-gray-400">Querying external sources...</p>
                 </div>
             `;
+            statsBar.classList.add('hidden');
+            statsBar.classList.remove('opacity-100');
 
             try {
                 const response = await fetch(`${API_URL}/api/search-leads`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(icpData)
                 });
 
@@ -447,150 +437,147 @@
                 }
             } catch (error) {
                 resultsContent.innerHTML = `
-                    <div class="empty-state">
-                        <h3 style="color: #dc3545;">⚠️ Error</h3>
-                        <p>${error.message}</p>
-                        <p style="font-size: 0.9em; color: #666; margin-top: 10px;">
-                            Make sure the backend server is running and configured properly.
-                        </p>
+                    <div class="border border-red-500 bg-red-50 p-8 text-center max-w-lg mx-auto mt-20 shadow-hard">
+                        <div class="w-12 h-12 bg-red-100 text-red-600 mx-auto flex items-center justify-center rounded-full mb-4">!</div>
+                        <div class="font-mono font-bold text-red-700 text-lg mb-2">CONNECTION_ERROR</div>
+                        <p class="font-sans text-sm text-red-600 mb-6">${error.message}</p>
+                        <button onclick="location.reload()" class="bg-red-600 text-white px-6 py-2 font-mono text-xs font-bold hover:bg-red-700 transition-colors">SYSTEM_REBOOT</button>
                     </div>
                 `;
             } finally {
                 searchBtn.disabled = false;
-                searchBtn.textContent = '🔍 Search for Leads';
+                searchBtn.classList.remove('opacity-80', 'cursor-not-allowed');
+                searchBtn.innerHTML = `
+                    <span class="tracking-wider">RUN_LEAD_DISCOVERY</span>
+                    <svg class="w-5 h-5 group-hover:translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="square" stroke-linejoin="miter" stroke-width="2" d="M13 7l5 5m0 0l-5 5m5-5H6"/></svg>
+                `;
             }
         }
 
         function displayResults(data) {
             const leads = data.leads || [];
             
-            let html = `
-                <div class="results-header">
-                    <div>
-                        <h2>Lead Results</h2>
-                        <p style="color: #666; font-size: 0.9em;">ICP: ${data.icp_name}</p>
-                    </div>
-                </div>
-
-                <div class="stats-bar">
-                    <div class="stat-card">
-                        <div class="stat-value">${leads.length}</div>
-                        <div class="stat-label">Total Leads</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-value">${leads.filter(l => l.ai_analysis.grade === 'A').length}</div>
-                        <div class="stat-label">Grade A</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-value">${Math.round(leads.reduce((sum, l) => sum + l.ai_analysis.confidence_score, 0) / leads.length)}%</div>
-                        <div class="stat-label">Avg Score</div>
-                    </div>
-                </div>
-            `;
+            // Update Stats
+            document.getElementById('statTotal').textContent = leads.length.toString().padStart(2, '0');
+            document.getElementById('statGradeA').textContent = leads.filter(l => l.ai_analysis.grade === 'A').length.toString().padStart(2, '0');
+            const avg = leads.length > 0 ? Math.round(leads.reduce((sum, l) => sum + l.ai_analysis.confidence_score, 0) / leads.length) : 0;
+            document.getElementById('statScore').textContent = avg + '%';
+            
+            statsBar.classList.remove('hidden');
+            setTimeout(() => statsBar.classList.add('opacity-100'), 50);
 
             if (leads.length === 0) {
-                html += `
-                    <div class="empty-state">
-                        <h3>No leads found</h3>
-                        <p>Try adjusting your ICP criteria</p>
+                resultsContent.innerHTML = `
+                    <div class="border-2 border-dashed border-gray-300 p-12 text-center rounded-lg">
+                        <p class="font-mono text-lg font-bold text-gray-400">NO_MATCHES_FOUND</p>
+                        <p class="text-sm text-gray-500 mt-2">Try broadening your search criteria.</p>
                     </div>
                 `;
-            } else {
-                leads.forEach((item, index) => {
-                    html += createLeadCard(item, index + 1);
-                });
+                return;
             }
 
-            resultsContent.innerHTML = html;
+            resultsContent.innerHTML = leads.map((item, index) => createLeadCard(item, index + 1)).join('');
         }
 
         function createLeadCard(item, index) {
-            const lead = item.lead;
-            const company = item.company;
-            const analysis = item.ai_analysis;
-
+            const { lead, company, ai_analysis } = item;
+            
+            // Grading Visuals
+            let gradeBadge = '';
+            let borderColor = 'border-ink';
+            
+            if(ai_analysis.grade === 'A') {
+                gradeBadge = 'bg-ink text-white border-ink';
+                borderColor = 'border-ink';
+            } else if(ai_analysis.grade === 'B') {
+                gradeBadge = 'bg-gray-100 text-gray-800 border-gray-300';
+            } else {
+                gradeBadge = 'bg-gray-50 text-gray-400 border-gray-200';
+            }
+            
             return `
-                <div class="lead-card">
-                    <div class="lead-header">
-                        <div class="lead-info">
-                            <h3>${index}. ${lead.name}</h3>
-                            <p>${lead.designation} at ${lead.company_name}</p>
-                            <p style="font-size: 0.85em; color: #999;">Source: ${lead.source}</p>
-                        </div>
-                        <div class="confidence-badge grade-${analysis.grade}">
-                            ${analysis.confidence_score}% Match (${analysis.grade})
-                        </div>
-                    </div>
-
-                    <div class="details-grid">
-                        <div class="detail-section">
-                            <h4>👤 Lead Contact</h4>
-                            <div class="detail-item">
-                                <span class="detail-label">Email:</span>
-                                <span class="detail-value">${lead.contact_details.email}</span>
-                            </div>
-                            <div class="detail-item">
-                                <span class="detail-label">Phone:</span>
-                                <span class="detail-value">${lead.contact_details.phone}</span>
-                            </div>
-                            <div class="detail-item">
-                                <span class="detail-label">LinkedIn:</span>
-                                <span class="detail-value" style="word-break: break-all;">${lead.contact_details.linkedin}</span>
+                <div class="bg-white border ${borderColor} p-0 shadow-hard hover:translate-x-[-2px] hover:translate-y-[-2px] hover:shadow-[6px_6px_0_0_#18181B] transition-all duration-200">
+                    <!-- Ticket Header -->
+                    <div class="border-b border-dashed border-gray-300 p-5 flex justify-between items-center bg-[#FAFAFA]">
+                        <div class="flex items-center gap-4">
+                            <span class="font-mono font-bold text-xl opacity-30">#${index.toString().padStart(2, '0')}</span>
+                            <div>
+                                <h3 class="font-sans font-bold text-xl text-ink leading-tight">${lead.name}</h3>
+                                <p class="text-xs font-mono text-gray-500 uppercase tracking-wide mt-0.5">${lead.designation}</p>
                             </div>
                         </div>
-
-                        <div class="detail-section">
-                            <h4>🏢 Company Info</h4>
-                            <div class="detail-item">
-                                <span class="detail-label">Industry:</span>
-                                <span class="detail-value">${company.industry}</span>
+                        <div class="flex flex-col items-end">
+                            <div class="flex items-center gap-2 mb-1">
+                                <span class="text-[10px] font-bold uppercase tracking-wider text-gray-400">Match Confidence</span>
+                                <span class="font-mono font-bold text-lg">${ai_analysis.confidence_score}%</span>
                             </div>
-                            <div class="detail-item">
-                                <span class="detail-label">Size:</span>
-                                <span class="detail-value">${company.size}</span>
-                            </div>
-                            <div class="detail-item">
-                                <span class="detail-label">Location:</span>
-                                <span class="detail-value">${company.location}</span>
-                            </div>
-                            <div class="detail-item">
-                                <span class="detail-label">Website:</span>
-                                <span class="detail-value">${company.website}</span>
+                            <div class="border px-3 py-0.5 text-sm font-mono font-bold ${gradeBadge}">
+                                GRADE ${ai_analysis.grade}
                             </div>
                         </div>
                     </div>
 
-                    <div class="detail-section" style="margin-top: 15px;">
-                        <h4>📝 About Company</h4>
-                        <p style="font-size: 0.9em; color: #555; line-height: 1.5;">${company.about}</p>
-                    </div>
+                    <!-- Ticket Body -->
+                    <div class="p-6 grid grid-cols-1 lg:grid-cols-12 gap-8">
+                        
+                        <!-- Left: Data -->
+                        <div class="lg:col-span-7 space-y-5">
+                            <!-- Company Block -->
+                            <div class="flex items-start gap-4">
+                                <div class="w-10 h-10 bg-gray-100 flex items-center justify-center border border-gray-200 rounded-sm shrink-0">
+                                    <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="square" stroke-linejoin="miter" stroke-width="1.5" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+                                </div>
+                                <div>
+                                    <h4 class="font-bold text-sm mb-1">${lead.company_name}</h4>
+                                    <div class="flex flex-wrap gap-2">
+                                        <span class="text-[10px] font-mono bg-gray-100 px-2 py-1 border border-gray-200 text-gray-600">${company.industry}</span>
+                                        <span class="text-[10px] font-mono bg-gray-100 px-2 py-1 border border-gray-200 text-gray-600">${company.size}</span>
+                                        <span class="text-[10px] font-mono bg-gray-100 px-2 py-1 border border-gray-200 text-gray-600">${company.location}</span>
+                                    </div>
+                                    <p class="text-xs text-gray-500 mt-2 leading-relaxed line-clamp-2">${company.about || 'No description available.'}</p>
+                                </div>
+                            </div>
 
-                    <div class="ai-insights">
-                        <h4>🤖 AI Analysis & Insights</h4>
-                        ${analysis.matching_criteria.map(match => `
-                            <div class="insight-item">✓ ${match}</div>
-                        `).join('')}
-                        ${analysis.insights.map(insight => `
-                            <div class="insight-item">${insight}</div>
-                        `).join('')}
-                        <div class="recommendation">
-                            💡 ${analysis.recommendation}
+                            <!-- Contact Block -->
+                            <div class="flex items-start gap-4">
+                                <div class="w-10 h-10 bg-gray-100 flex items-center justify-center border border-gray-200 rounded-sm shrink-0">
+                                    <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="square" stroke-linejoin="miter" stroke-width="1.5" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                                </div>
+                                <div class="w-full">
+                                    <h4 class="font-bold text-sm mb-2">Direct Contact</h4>
+                                    <div class="grid grid-cols-2 gap-2">
+                                        <div class="bg-gray-50 border border-gray-200 p-2 text-xs font-mono truncate select-all hover:bg-white transition-colors cursor-text">
+                                            ${lead.contact_details.email || 'N/A'}
+                                        </div>
+                                        <div class="bg-gray-50 border border-gray-200 p-2 text-xs font-mono truncate select-all hover:bg-white transition-colors cursor-text">
+                                            ${lead.contact_details.phone || 'N/A'}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Right: AI Analysis -->
+                        <div class="lg:col-span-5 bg-[#F3F0E7] border border-ink/10 p-4 relative">
+                            <div class="absolute -top-2 -right-2 bg-ink text-white text-[10px] font-bold px-2 py-0.5">AI_INSIGHT</div>
+                            <h4 class="font-mono text-xs font-bold uppercase mb-3 text-ink">Reasoning Log</h4>
+                            <p class="text-xs leading-relaxed text-gray-700 italic mb-4">
+                                "${ai_analysis.recommendation}"
+                            </p>
+                            
+                            <div class="space-y-2">
+                                <div class="text-[10px] font-bold uppercase text-gray-400">Matched Criteria</div>
+                                <div class="flex flex-wrap gap-1">
+                                    ${ai_analysis.matching_criteria.slice(0,4).map(tag => 
+                                        `<span class="text-[10px] font-mono border border-gray-300 bg-white px-1.5 py-0.5 text-gray-600">✓ ${tag}</span>`
+                                    ).join('')}
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
             `;
         }
-
-        // Check backend health on load
-        window.addEventListener('load', async () => {
-            try {
-                const response = await fetch(`${API_URL}/api/health`);
-                const data = await response.json();
-                console.log('Backend health:', data);
-            } catch (error) {
-                console.error('Backend not available:', error);
-            }
-        });
     </script>
 </body>
 </html>
