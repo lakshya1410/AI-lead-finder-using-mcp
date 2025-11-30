@@ -165,8 +165,9 @@ async def search_leads(icp_data):
     global agent
     
     if not agent:
-        print("❌ Agent not initialized")
-        return []
+        print("⚠️ Agent not initialized - returning sample leads only")
+        # Return realistic sample leads so the frontend remains usable even when MCP/LLM isn't available
+        return create_sample_leads_from_search(icp_data)
     
     # Build focused search query
     search_query = f"""Find 5 B2B leads matching this profile:
@@ -456,30 +457,35 @@ if __name__ == '__main__':
     if not os.getenv('OPENAI_API_KEY'):
         print("⚠️  WARNING: OPENAI_API_KEY not set!")
     
-    # Initialize MCP on startup
-    print("\n🔧 Initializing MCP Agent...")
+    # Initialize MCP on startup but DO NOT block server startup if initialization fails.
+    print("\n🔧 Initializing MCP Agent (best-effort)...")
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    success = loop.run_until_complete(initialize_mcp())
-    loop.close()
-    
-    if success:
-        print("\n✅ Server ready!")
-        print("📡 Backend: http://localhost:5000")
-        print("🌐 Frontend: http://localhost:5000 (served at /)")
-        print("=" * 60)
+    try:
+        success = loop.run_until_complete(initialize_mcp())
+    except Exception as e:
+        print(f"❌ Exception during MCP init: {e}")
+        success = False
+    finally:
+        loop.close()
 
-        # Auto-open the frontend in the default browser once the server is bound.
-        def _open_browser():
-            try:
-                webbrowser.open('http://localhost:5000')
-            except Exception:
-                pass
+    if not success:
+        print("\n⚠️  MCP Agent did not initialize. The server will still start and serve sample leads.")
+        print("Set BRIGHT_DATA_API_TOKEN and OPENAI_API_KEY in environment to enable full functionality.")
 
-        threading.Timer(1.0, _open_browser).start()
+    print("\n✅ Server starting")
+    print("📡 Backend: http://localhost:5000")
+    print("🌐 Frontend: http://localhost:5000 (served at /)")
+    print("=" * 60)
 
-        # Disable the reloader to avoid opening multiple browser tabs
-        app.run(debug=True, host='0.0.0.0', port=5000, use_reloader=False)
-    else:
-        print("\n❌ Failed to initialize MCP. Please check your configuration.")
-        print("Make sure .env file exists with valid tokens.")
+    # Auto-open the frontend in the default browser once the server is bound.
+    def _open_browser():
+        try:
+            webbrowser.open('http://localhost:5000')
+        except Exception:
+            pass
+
+    threading.Timer(1.0, _open_browser).start()
+
+    # Disable the reloader to avoid opening multiple browser tabs
+    app.run(debug=True, host='0.0.0.0', port=5000, use_reloader=False)
