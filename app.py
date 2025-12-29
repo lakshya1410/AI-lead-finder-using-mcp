@@ -2,295 +2,740 @@ import asyncio
 import json
 import os
 import re
+import aiohttp
 from flask import Flask, request, jsonify, send_from_directory
 import webbrowser
 import threading
 from flask_cors import CORS
-from langchain_openai import ChatOpenAI
-from langgraph.prebuilt import create_react_agent
-from langchain_mcp_adapters.client import MultiServerMCPClient
+from openai import OpenAI
 from dotenv import load_dotenv
 from datetime import datetime
+from typing import Optional, List, Dict, Any
 
 load_dotenv()
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='static')
 CORS(app)
 
-# Global MCP client
+# Global variables
 mcp_client = None
-agent = None
+openai_client = None
 
-async def initialize_mcp():
-    """Initialize MCP client and agent"""
-    global mcp_client, agent
+# Configuration
+BRIGHT_DATA_API_TOKEN = os.getenv('BRIGHT_DATA_API_TOKEN', '')
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
+
+# Initialize OpenAI client
+if OPENAI_API_KEY:
+    openai_client = OpenAI(api_key=OPENAI_API_KEY)
+
+class BrightDataMCP:
+    """Client for Bright Data MCP server with proper session management"""
     
-    try:
-        # Configure MCP client with Bright Data
-        bright_data_token = os.getenv('BRIGHT_DATA_API_TOKEN')
-        if not bright_data_token:
-            raise ValueError("BRIGHT_DATA_API_TOKEN not found in environment variables")
+    def __init__(self, api_token: str):
+        self.api_token = api_token
+        self.base_url = "https://mcp.brightdata.com"
+        self.session_id: Optional[str] = None
+        self.request_id = 0
+        self._http_session: Optional[aiohttp.ClientSession] = None
+    
+    async def _get_session(self) -> aiohttp.ClientSession:
+        """Get or create HTTP session"""
+        if self._http_session is None or self._http_session.closed:
+            self._http_session = aiohttp.ClientSession()
+        return self._http_session
+    
+    async def close(self):
+        """Close HTTP session"""
+        if self._http_session and not self._http_session.closed:
+            await self._http_session.close()
+    
+    def _next_id(self) -> int:
+        """Get next request ID"""
+        self.request_id += 1
+        return self.request_id
+    
+    async def initialize(self, timeout: int = 30) -> bool:
+        """Initialize MCP session - required before making tool calls"""
+        url = f"{self.base_url}/mcp?token={self.api_token}"
         
-        mcp_client = MultiServerMCPClient({
-            "bright_data": {
-                "url": f"https://mcp.brightdata.com/sse?token={bright_data_token}",
-                "transport": "sse",
+        payload = {
+            "jsonrpc": "2.0",
+            "id": self._next_id(),
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {
+                    "name": "prospecting_pro",
+                    "version": "1.0.0"
+                }
             }
-        })
+        }
         
-        # Get available tools
-        tools = await mcp_client.get_tools()
-        print(f"✅ Available tools: {[tool.name for tool in tools]}")
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream"
+        }
         
-        # Configure LLM with OpenAI
-        openai_key = os.getenv("OPENAI_API_KEY")
-        if not openai_key:
-            raise ValueError("OPENAI_API_KEY not found in environment variables")
+        try:
+            session = await self._get_session()
+            async with session.post(
+                url,
+                json=payload,
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=timeout)
+            ) as response:
+                self.session_id = response.headers.get('Mcp-Session-Id')
+                content_type = response.headers.get('Content-Type', '')
+                
+                if response.status == 200:
+                    if 'text/event-stream' in content_type:
+                        result = await self._parse_sse_response(response)
+                    else:
+                        result = await response.json()
+                    
+                    print(f"✅ MCP Initialize successful")
+                    if self.session_id:
+                        print(f"   Session ID: {self.session_id[:20]}...")
+                    
+                    await self._send_initialized()
+                    return True
+                else:
+                    error_text = await response.text()
+                    print(f"❌ MCP Initialize failed ({response.status}): {error_text[:300]}")
+                    return False
+                    
+        except Exception as e:
+            print(f"❌ MCP Initialize error: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+    async def _send_initialized(self):
+        """Send 'initialized' notification after successful init"""
+        url = f"{self.base_url}/mcp?token={self.api_token}"
         
-        llm = ChatOpenAI(
-            openai_api_key=openai_key,
-            model_name="gpt-4o-mini",  # Using mini for faster/cheaper responses
-            temperature=0.3
+        payload = {
+            "jsonrpc": "2.0",
+            "method": "notifications/initialized"
+        }
+        
+        headers = {"Content-Type": "application/json"}
+        if self.session_id:
+            headers["Mcp-Session-Id"] = self.session_id
+        
+        try:
+            session = await self._get_session()
+            async with session.post(url, json=payload, headers=headers) as response:
+                pass
+        except:
+            pass
+    
+    async def call_tool(self, tool_name: str, arguments: Dict[str, Any], timeout: int = 60) -> Dict:
+        """Call a Bright Data MCP tool via JSON-RPC"""
+        if not self.session_id:
+            if not await self.initialize():
+                return {"error": "Failed to initialize MCP session"}
+        
+        url = f"{self.base_url}/mcp?token={self.api_token}"
+        
+        payload = {
+            "jsonrpc": "2.0",
+            "id": self._next_id(),
+            "method": "tools/call",
+            "params": {
+                "name": tool_name,
+                "arguments": arguments
+            }
+        }
+        
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json, text/event-stream"
+        }
+        if self.session_id:
+            headers["Mcp-Session-Id"] = self.session_id
+        
+        try:
+            session = await self._get_session()
+            async with session.post(
+                url,
+                json=payload,
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=timeout)
+            ) as response:
+                content_type = response.headers.get('Content-Type', '')
+                
+                if response.status == 200:
+                    if 'text/event-stream' in content_type:
+                        return await self._parse_sse_response(response)
+                    else:
+                        result = await response.json()
+                        return result
+                else:
+                    error_text = await response.text()
+                    print(f"❌ MCP Error ({response.status}): {error_text[:500]}")
+                    
+                    if response.status == 404 or "session" in error_text.lower():
+                        self.session_id = None
+                        print("   Attempting to re-initialize session...")
+                        if await self.initialize():
+                            return await self.call_tool(tool_name, arguments, timeout)
+                    
+                    return {"error": error_text, "status": response.status}
+                    
+        except asyncio.TimeoutError:
+            print(f"❌ MCP call timed out after {timeout}s")
+            return {"error": "timeout"}
+        except Exception as e:
+            print(f"❌ MCP call failed: {str(e)}")
+            return {"error": str(e)}
+    
+    async def _parse_sse_response(self, response) -> Dict:
+        """Parse Server-Sent Events response"""
+        result = {}
+        async for line in response.content:
+            line = line.decode('utf-8').strip()
+            if line.startswith('data:'):
+                data = line[5:].strip()
+                if data:
+                    try:
+                        parsed = json.loads(data)
+                        if "result" in parsed or "error" in parsed:
+                            return parsed
+                    except json.JSONDecodeError:
+                        continue
+        return result
+    
+    async def search_web(self, query: str, count: int = 10) -> List[Dict]:
+        """Search the web using Bright Data's search_engine tool"""
+        print(f"🔍 Searching: {query}")
+        
+        result = await self.call_tool(
+            tool_name="search_engine",
+            arguments={
+                "query": query,
+                "count": count
+            }
         )
         
-        # System prompt for lead generation
-        system_prompt = """You are an expert B2B lead generation agent. Your task is to find real leads matching the given ICP criteria.
-
-CRITICAL INSTRUCTIONS:
-1. Use search_engine tool to find companies matching the criteria
-2. For each company found, search for decision-makers with target job titles
-3. Try to find contact information (email, phone, LinkedIn)
-4. Return results in STRICT JSON format
-
-Output ONLY valid JSON in this exact structure:
-[
-  {
-    "lead_name": "John Smith",
-    "designation": "VP of Engineering",
-    "company_name": "Acme Corp",
-    "source": "LinkedIn",
-    "email": "john.smith@acme.com or Not found",
-    "phone": "+1-555-0100 or Not found",
-    "linkedin": "linkedin.com/in/johnsmith or Not found",
-    "company_about": "Brief company description",
-    "company_industry": "Technology",
-    "company_size": "201-500",
-    "company_location": "San Francisco, CA",
-    "company_website": "www.acme.com",
-    "company_email": "contact@acme.com or Not found",
-    "company_phone": "+1-555-0100 or Not found",
-    "company_address": "123 Main St or Not found",
-    "company_valuation": "50000000 or Not found",
-    "company_tech": "AWS, React, Python or Not found"
-  }
-]
-
-DO NOT include any text before or after the JSON. Just return the JSON array."""
+        if "error" in result:
+            print(f"❌ Search failed: {result.get('error', 'Unknown error')[:200]}")
+            return []
         
-        # Create ReAct agent
-        agent = create_react_agent(
-            model=llm,
-            tools=tools,
-            prompt=system_prompt
+        try:
+            if "result" in result:
+                content = result["result"]
+                if isinstance(content, dict) and "content" in content:
+                    for block in content.get("content", []):
+                        if block.get("type") == "text":
+                            text = block.get("text", "")
+                            try:
+                                parsed = json.loads(text)
+                                if isinstance(parsed, list):
+                                    return parsed
+                                return [parsed]
+                            except:
+                                return [{"raw_text": text}]
+                return [content] if content else []
+            return []
+        except Exception as e:
+            print(f"❌ Error parsing search results: {e}")
+            return []
+    
+    async def scrape_url(self, url: str) -> str:
+        """Scrape a URL using Bright Data's scrape_as_markdown tool"""
+        print(f"📄 Scraping: {url}")
+        
+        result = await self.call_tool(
+            tool_name="scrape_as_markdown",
+            arguments={"url": url}
         )
         
-        print("✅ MCP Agent initialized successfully!")
-        return True
+        if "error" in result:
+            print(f"❌ Scrape failed: {result.get('error', 'Unknown error')[:200]}")
+            return ""
         
-    except Exception as e:
-        print(f"❌ Error initializing MCP: {str(e)}")
-        return False
+        try:
+            if "result" in result:
+                content = result["result"]
+                if isinstance(content, dict) and "content" in content:
+                    for block in content.get("content", []):
+                        if block.get("type") == "text":
+                            return block.get("text", "")
+                return str(content) if content else ""
+            return ""
+        except Exception as e:
+            print(f"❌ Error parsing scrape results: {e}")
+            return ""
 
-def calculate_confidence_score(lead_data, icp_criteria):
+def generate_email_patterns(name: str, company_domain: str) -> List[str]:
+    """Generate possible email patterns from name and company domain"""
+    if not name or not company_domain or name == 'N/A':
+        return []
+    
+    # Clean the name
+    name = name.strip().lower()
+    name_parts = name.split()
+    
+    if len(name_parts) < 2:
+        return []
+    
+    first = name_parts[0]
+    last = name_parts[-1]
+    
+    # Remove common domain prefixes
+    domain = company_domain.replace('www.', '').replace('http://', '').replace('https://', '').split('/')[0]
+    
+    patterns = [
+        f"{first}.{last}@{domain}",
+        f"{first}{last}@{domain}",
+        f"{first}@{domain}",
+        f"{first[0]}{last}@{domain}",
+        f"{first}_{last}@{domain}",
+        f"{last}.{first}@{domain}",
+        f"{first[0]}.{last}@{domain}",
+    ]
+    
+    return patterns
+
+
+def extract_domain_from_url(url: str) -> str:
+    """Extract domain from URL"""
+    if not url:
+        return ''
+    
+    # Remove protocol
+    url = url.replace('https://', '').replace('http://', '').replace('www.', '')
+    # Get domain
+    domain = url.split('/')[0].split('?')[0]
+    return domain
+
+
+def build_search_queries(icp_data: Dict) -> List[str]:
+    """Build effective search queries from ICP data"""
+    queries = []
+    
+    industry = icp_data.get('industry', '')
+    job_titles = icp_data.get('target_job_title', '').split(',')
+    regions = icp_data.get('geographic_region', '').split(',')
+    company_size = icp_data.get('company_size', '')
+    technologies = icp_data.get('technology_used', '')
+    
+    # Get first title and region for focused queries
+    primary_title = job_titles[0].strip() if job_titles else 'CEO'
+    primary_region = regions[0].strip() if regions else ''
+    
+    # Query 1: LinkedIn profile search
+    if primary_title and industry and primary_region:
+        queries.append(f'site:linkedin.com/in "{primary_title}" "{industry}" {primary_region}')
+    
+    # Query 2: Company directory with contact info
+    if industry and primary_region:
+        queries.append(f'"{industry}" companies {primary_region} contact email phone address')
+    
+    # Query 3: Decision maker with email pattern
+    if primary_title and industry:
+        queries.append(f'{primary_title} {industry} email "@" {primary_region}')
+    
+    # Query 4: Company website and about page
+    if industry and company_size:
+        queries.append(f'{company_size} {industry} companies {primary_region} site:about OR site:contact')
+    
+    # Query 5: Technology stack and team
+    if technologies and industry:
+        queries.append(f'{industry} companies using {technologies.split(",")[0].strip()} team contact')
+    
+    # Query 6: Professional directory
+    if primary_title and industry:
+        queries.append(f'"{primary_title}" "{industry}" {primary_region} site:crunchbase.com OR site:zoominfo.com')
+    
+    # Query 7: News and press releases for recent hires
+    if primary_title and industry:
+        queries.append(f'"{primary_title}" joins OR appointed {industry} company {primary_region}')
+    
+    return queries[:8]  # Return up to 8 targeted queries
+
+
+def calculate_confidence_score(lead_data: Dict, icp_criteria: Dict) -> Dict:
     """Calculate how well a lead matches the ICP"""
-    score = 0
-    max_score = 100
     matches = []
+    score = 0
     
-    # Industry match (20 points)
-    if icp_criteria.get('industry'):
-        company_industry = str(lead_data.get('company_industry', '')).lower()
-        if icp_criteria['industry'].lower() in company_industry:
-            score += 20
-            matches.append("Industry match")
-    
-    # Company size match (15 points)
-    if icp_criteria.get('company_size'):
-        company_size = str(lead_data.get('company_size', '')).lower()
-        if icp_criteria['company_size'].lower() in company_size:
-            score += 15
-            matches.append("Company size match")
+    # Industry match (30 points)
+    lead_industry = str(lead_data.get('company_industry', '')).lower()
+    target_industry = str(icp_criteria.get('industry', '')).lower()
+    if lead_industry and target_industry and target_industry in lead_industry:
+        score += 30
+        matches.append("Industry match")
     
     # Job title match (25 points)
-    if icp_criteria.get('target_job_title'):
-        lead_title = str(lead_data.get('designation', '')).lower()
-        target_titles = [t.strip().lower() for t in icp_criteria['target_job_title'].split(',')]
-        if any(title in lead_title for title in target_titles):
+    lead_title = str(lead_data.get('designation', '')).lower()
+    target_titles = str(icp_criteria.get('target_job_title', '')).lower().split(',')
+    for title in target_titles:
+        if title.strip() in lead_title or lead_title in title.strip():
             score += 25
             matches.append("Job title match")
+            break
     
-    # Geographic match (15 points)
-    if icp_criteria.get('geographic_region'):
-        location = str(lead_data.get('company_location', '')).lower()
-        regions = [r.strip().lower() for r in icp_criteria['geographic_region'].split(',')]
-        if any(region in location for region in regions):
+    # Location match (15 points)
+    lead_location = str(lead_data.get('company_location', '')).lower()
+    target_regions = str(icp_criteria.get('geographic_region', '')).lower().split(',')
+    for region in target_regions:
+        if region.strip() in lead_location:
             score += 15
-            matches.append("Geographic match")
+            matches.append("Location match")
+            break
     
-    # Technology match (15 points)
-    if icp_criteria.get('technology_used'):
-        tech_stack = str(lead_data.get('company_tech', '')).lower()
-        target_tech = [t.strip().lower() for t in icp_criteria['technology_used'].split(',')]
-        if any(tech in tech_stack for tech in target_tech):
-            score += 15
-            matches.append("Technology match")
+    # Contact info available (20 points)
+    if lead_data.get('email'):
+        score += 10
+        matches.append("Email available")
+    if lead_data.get('linkedin'):
+        score += 10
+        matches.append("LinkedIn available")
     
-    # Contact info available (10 points)
-    if lead_data.get('email') and lead_data['email'] != 'Not found':
-        score += 5
-        matches.append("Contact email available")
-    if lead_data.get('linkedin') and lead_data['linkedin'] != 'Not found':
-        score += 5
-        matches.append("LinkedIn profile available")
+    # Company size match (10 points)
+    lead_size = str(lead_data.get('company_size', '')).lower()
+    target_size = str(icp_criteria.get('company_size', '')).lower()
+    if lead_size and target_size and (target_size in lead_size or lead_size in target_size):
+        score += 10
+        matches.append("Company size match")
+    
+    # Determine grade
+    if score >= 80:
+        grade = 'A'
+    elif score >= 60:
+        grade = 'B'
+    elif score >= 40:
+        grade = 'C'
+    else:
+        grade = 'D'
     
     return {
-        'score': score,
-        'percentage': round((score / max_score) * 100, 2),
-        'matches': matches,
-        'grade': 'A' if score >= 80 else 'B' if score >= 60 else 'C' if score >= 40 else 'D'
+        'percentage': min(score, 100),
+        'grade': grade,
+        'matches': matches
     }
 
-async def search_leads(icp_data):
-    """Search for leads matching ICP criteria"""
-    global agent
+async def search_leads_with_mcp(icp_data: Dict) -> List[Dict]:
+    """Search for leads using Bright Data MCP"""
+    global mcp_client
     
-    if not agent:
-        print("⚠️ Agent not initialized - returning sample leads only")
-        # Return realistic sample leads so the frontend remains usable even when MCP/LLM isn't available
-        return create_sample_leads_from_search(icp_data)
+    # Create new client for each search to avoid session issues
+    if not BRIGHT_DATA_API_TOKEN:
+        print("❌ BRIGHT_DATA_API_TOKEN not configured")
+        return []
     
-    # Build focused search query
-    search_query = f"""Find 5 B2B leads matching this profile:
-
-Industry: {icp_data['industry']}
-Company Size: {icp_data['company_size']}
-Job Titles: {icp_data['target_job_title']}
-Location: {icp_data['geographic_region']}
-Technologies: {icp_data['technology_used']}
-
-Steps:
-1. Use search_engine to find "{icp_data['target_job_title']} {icp_data['industry']} {icp_data['geographic_region']}"
-2. Extract company names and decision-maker names
-3. For each lead, gather: name, title, company, email, phone, LinkedIn
-4. Get company details: industry, size, location, website, description
-
-Return ONLY a JSON array with the structure specified in your instructions. No other text."""
+    # Always create a fresh client
+    mcp_client = BrightDataMCP(BRIGHT_DATA_API_TOKEN)
     
+    all_results = []
+    queries = build_search_queries(icp_data)
+    
+    print(f"\n🔍 Executing {len(queries)} search queries...")
+    
+    for query in queries:
+        results = await mcp_client.search_web(query, count=15)  # Increased to 15 for more results
+        if results:
+            all_results.extend(results)
+            print(f"  ✅ Found {len(results)} results for: {query[:50]}...")
+        else:
+            print(f"  ⚠️ No results for: {query[:50]}...")
+        
+        # Small delay between queries to avoid rate limiting
+        await asyncio.sleep(0.5)
+    
+    return all_results
+
+
+def parse_search_results_with_ai(search_results: List[Dict], icp_data: Dict) -> List[Dict]:
+    """Use OpenAI to parse search results into structured lead data"""
+    if not openai_client:
+        print("❌ OpenAI client not available")
+        return []
+    
+    if not search_results:
+        print("⚠️ No search results to parse")
+        return []
+    
+    # Prepare the search results text - increased limit for more detail
+    results_text = json.dumps(search_results, indent=2)[:30000]  # Increased to 30k chars for comprehensive extraction
+    
+    prompt = f"""You are an expert B2B lead intelligence analyst extracting REAL, VERIFIABLE data from web search results.
+
+🎯 TARGET PROFILE:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+• Industry: {icp_data.get('industry', 'N/A')}
+• Job Titles: {icp_data.get('target_job_title', 'N/A')}
+• Company Size: {icp_data.get('company_size', 'N/A')}
+• Location: {icp_data.get('geographic_region', 'N/A')}
+• Tech Stack: {icp_data.get('technology_used', 'N/A')}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📊 SEARCH RESULTS TO ANALYZE:
+{results_text}
+
+⚠️ ⚠️ MANDATORY EXTRACTION REQUIREMENTS:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. ✅ SOURCE URL: MUST include the complete URL where you found this person/company
+2. ✅ LINKEDIN: Complete profile URL (https://linkedin.com/in/username)
+3. ✅ EMAIL: Extract ANY email mentioned OR infer from patterns like:
+   - firstname.lastname@company.com
+   - contact@company.com
+   - info@company.com
+   - Look in page content, contact sections, author info
+4. ✅ PHONE: Extract phone numbers in ANY format (+91-XXX, (555) XXX-XXXX, etc.)
+5. ✅ COMPANY WEBSITE: Complete URL with https://
+6. ✅ LOCATION: Full address if available, otherwise city, state, country
+7. ✅ COMPANY INFO: Description, size, industry, founding year, revenue
+8. ✅ TECHNOLOGY: Any tech stack mentioned (AWS, Python, React, etc.)
+9. ✅ SOCIAL: Twitter, GitHub, Facebook profile URLs
+10. ✅ VALIDATION: Every field must trace back to search results
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔍 SMART EXTRACTION TIPS:
+- Check URL slugs for names (linkedin.com/in/john-smith)
+- Extract domain from website for email patterns
+- Look for "Contact", "About", "Team" sections
+- Find email formats mentioned in content
+- Extract phone from contact sections
+- Get company info from meta descriptions
+- Find recent news, funding, hiring info
+
+❌ NEVER FABRICATE - Only use explicit information from results
+
+📤 OUTPUT FORMAT - Return ONLY this JSON array:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[
+  {{
+    "lead_name": "FirstName LastName",
+    "designation": "Founder | CEO | CTO | VP Engineering | etc.",
+    "company_name": "Company Name Inc.",
+    
+    "email": "person@company.com",
+    "phone": "+91-9876543210 or +1-555-123-4567",
+    "linkedin": "https://linkedin.com/in/username",
+    "source_url": "https://exact-page-where-found.com",
+    
+    "company_website": "https://company.com",
+    "company_about": "Detailed description of what the company does, their mission, products/services. Be comprehensive.",
+    "company_industry": "SaaS | E-commerce | Fintech | Healthcare | Real Estate | etc.",
+    "company_size": "1-10 | 11-50 | 51-200 | 201-500 | 500+ employees",
+    "company_location": "City, State/Province, Country (Full address if available)",
+    "company_email": "contact@company.com or info@company.com",
+    "company_phone": "+91-XXX-XXX-XXXX",
+    "company_address": "123 Street Name, Building, City, State, ZIP",
+    "company_valuation": "$5M Series A | $50M valuation | Bootstrapped | etc.",
+    "company_tech": "AWS, Python, React, PostgreSQL, Redis, etc.",
+    "company_revenue": "$1M-$5M ARR | $10M+ | etc.",
+    "company_founded": "2020 | 2018 | etc.",
+    
+    "social_profiles": {{
+      "twitter": "https://twitter.com/username",
+      "facebook": "https://facebook.com/company",
+      "github": "https://github.com/username"
+    }},
+    
+    "recent_news": "Raised $5M Series A from XYZ Ventures in Q4 2024 | Launched new product | Hired 20 engineers | etc.",
+    "relevance_score": 8
+  }}
+]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🎯 EXTRACT 8-15 LEADS with maximum detail from the search results.
+📋 Return ONLY valid JSON. No explanations, no markdown, just the array.
+"""
+
     try:
-        print(f"🔍 Searching for leads with query...")
+        print("🤖 Parsing results with OpenAI...")
         
-        result = await agent.ainvoke({
-            "messages": [("human", search_query)]
-        })
+        response = openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are an expert B2B lead intelligence analyst. Extract MAXIMUM detail from search results. ALWAYS include source URLs, contact information, and company details. Use REAL data only - never fabricate. If you see a URL, email, phone, or any contact detail in the results, extract it. Look carefully at LinkedIn profiles, company pages, and contact sections."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.01,  # Extremely low for maximum accuracy
+            max_tokens=8000  # Increased to 8000 for very detailed responses
+        )
         
-        response_content = result["messages"][-1].content
-        print(f"📥 Raw AI Response:\n{response_content[:500]}...")
+        response_text = response.choices[0].message.content.strip()
         
-        # Parse the AI response
-        leads = parse_ai_response(response_content, icp_data)
-        
-        print(f"✅ Found {len(leads)} leads")
-        return leads
-        
+        # Extract JSON from response
+        json_match = re.search(r'\[[\s\S]*\]', response_text)
+        if json_match:
+            leads_data = json.loads(json_match.group(0))
+            print(f"✅ AI extracted {len(leads_data)} leads with detailed information")
+            return leads_data
+        else:
+            print("⚠️ No valid JSON in AI response")
+            return []
+            
+    except json.JSONDecodeError as e:
+        print(f"❌ JSON parse error: {e}")
+        print(f"Response preview: {response_text[:500] if 'response_text' in locals() else 'N/A'}")
+        return []
     except Exception as e:
-        print(f"❌ Error in search_leads: {str(e)}")
+        print(f"❌ OpenAI error: {e}")
         import traceback
         traceback.print_exc()
         return []
 
-def parse_ai_response(response_text, icp_data):
-    """Parse AI response and structure lead data"""
-    leads = []
-    
-    try:
-        # Clean the response
-        response_text = response_text.strip()
-        
-        # Try to find JSON in the response
-        json_match = re.search(r'\[[\s\S]*\]', response_text)
-        if json_match:
-            json_str = json_match.group(0)
-            parsed_data = json.loads(json_str)
-            
-            if isinstance(parsed_data, list):
-                for item in parsed_data:
-                    lead = structure_lead_data(item, icp_data)
-                    leads.append(lead)
-                    
-            print(f"✅ Parsed {len(leads)} leads from JSON")
-            
-        else:
-            print("⚠️ No JSON found in response, creating sample leads")
-            # Create sample leads if parsing fails
-            leads = create_sample_leads_from_search(icp_data)
-            
-    except json.JSONDecodeError as e:
-        print(f"❌ JSON parsing error: {e}")
-        print(f"Response text: {response_text[:200]}")
-        leads = create_sample_leads_from_search(icp_data)
-        
-    except Exception as e:
-        print(f"❌ Parsing error: {e}")
-        import traceback
-        traceback.print_exc()
-        leads = create_sample_leads_from_search(icp_data)
-    
-    return leads
 
-def structure_lead_data(data, icp_data):
-    """Structure lead data with confidence scoring"""
+async def search_leads(icp_data: Dict) -> List[Dict]:
+    """Main function to search for leads using MCP + OpenAI"""
+    print("\n" + "=" * 60)
+    print(f"🚀 Starting Lead Search for: {icp_data.get('icp_name', 'Unknown ICP')}")
+    print("=" * 60)
+    
+    # Step 1: Search using Bright Data MCP
+    search_results = await search_leads_with_mcp(icp_data)
+    
+    if not search_results:
+        print("❌ No search results from MCP")
+        return []
+    
+    print(f"\n📊 Total raw results: {len(search_results)}")
+    
+    # Step 2: Parse results with OpenAI
+    parsed_leads = parse_search_results_with_ai(search_results, icp_data)
+    
+    if not parsed_leads:
+        print("❌ No leads extracted from search results")
+        return []
+    
+    # Step 3: Structure and score leads
+    structured_leads = []
+    for lead_data in parsed_leads:
+        structured = structure_lead_data(lead_data, icp_data)
+        structured_leads.append(structured)
+    
+    # Sort by confidence score
+    structured_leads.sort(
+        key=lambda x: x['ai_analysis']['confidence_score'],
+        reverse=True
+    )
+    
+    print(f"\n✅ Final leads found: {len(structured_leads)}")
+    return structured_leads
+
+def structure_lead_data(lead_data: Dict, icp_data: Dict) -> Dict:
+    """Structure lead data with confidence scoring and comprehensive information"""
+    confidence = calculate_confidence_score(lead_data, icp_data)
+    
+    # Get social profiles
+    social_profiles = lead_data.get('social_profiles', {})
+    if isinstance(social_profiles, str):
+        social_profiles = {}
+    
+    # Enrich email if not found
+    email = lead_data.get('email', '')
+    email_patterns = []
+    
+    if not email or email in ['Not found', 'N/A', '']:
+        # Generate email patterns
+        name = lead_data.get('lead_name', '')
+        website = lead_data.get('company_website', '')
+        
+        if name and website and name not in ['N/A', 'Not found']:
+            domain = extract_domain_from_url(website)
+            if domain:
+                email_patterns = generate_email_patterns(name, domain)
+                if email_patterns:
+                    email = email_patterns[0]  # Use first pattern as primary
+    
     lead = {
         'lead': {
-            'name': data.get('lead_name', 'N/A'),
-            'designation': data.get('designation', 'N/A'),
-            'company_name': data.get('company_name', 'N/A'),
-            'source': data.get('source', 'Web Search'),
+            'name': lead_data.get('lead_name', 'N/A'),
+            'designation': lead_data.get('designation', 'N/A'),
+            'company_name': lead_data.get('company_name', 'N/A'),
+            'source': lead_data.get('source_url') or lead_data.get('source', 'Web Search'),
+            'source_url': lead_data.get('source_url', ''),
             'contact_details': {
-                'email': data.get('email', 'Not found'),
-                'phone': data.get('phone', 'Not found'),
-                'linkedin': data.get('linkedin', 'Not found')
+                'email': email or 'Not found',
+                'email_patterns': email_patterns[:3] if email_patterns else [],
+                'email_source': lead_data.get('source_url') or 'Generated Pattern',
+                'phone': lead_data.get('phone') or 'Not found',
+                'linkedin': lead_data.get('linkedin') or 'Not found'
+            },
+            'social_profiles': {
+                'twitter': social_profiles.get('twitter', ''),
+                'facebook': social_profiles.get('facebook', ''),
+                'github': social_profiles.get('github', '')
             }
         },
         'company': {
-            'name': data.get('company_name', 'N/A'),
-            'about': data.get('company_about', 'N/A'),
-            'industry': data.get('company_industry', 'N/A'),
-            'size': data.get('company_size', 'N/A'),
-            'location': data.get('company_location', 'N/A'),
-            'website': data.get('company_website', 'N/A'),
+            'name': lead_data.get('company_name', 'N/A'),
+            'about': lead_data.get('company_about', 'N/A'),
+            'industry': lead_data.get('company_industry', 'N/A'),
+            'size': lead_data.get('company_size', 'N/A'),
+            'location': lead_data.get('company_location', 'N/A'),
+            'website': lead_data.get('company_website', 'N/A'),
             'contact_info': {
-                'email': data.get('company_email', 'Not found'),
-                'phone': data.get('company_phone', 'Not found')
+                'email': lead_data.get('company_email') or 'Not found',
+                'phone': lead_data.get('company_phone') or 'Not found'
             },
-            'address': data.get('company_address', 'Not found'),
-            'valuation': data.get('company_valuation', 'Not found')
+            'address': lead_data.get('company_address') or 'Not found',
+            'valuation': lead_data.get('company_valuation') or 'Not found',
+            'tech_stack': lead_data.get('company_tech') or 'Not found',
+            'revenue': lead_data.get('company_revenue', ''),
+            'founded': lead_data.get('company_founded', ''),
+            'recent_news': lead_data.get('recent_news', ''),
+            'source_urls': {
+                'profile': lead_data.get('source_url', ''),
+                'website': lead_data.get('company_website', ''),
+                'linkedin': lead_data.get('linkedin', '')
+            }
+        },
+        'ai_analysis': {
+            'confidence_score': confidence['percentage'],
+            'grade': confidence['grade'],
+            'matching_criteria': confidence['matches'],
+            'insights': generate_insights(lead_data, confidence),
+            'recommendation': generate_recommendation(confidence['percentage']),
+            'relevance_score': lead_data.get('relevance_score', 5)
+        },
+        'metadata': {
+            'source_url': lead_data.get('source_url', ''),
+            'extraction_timestamp': datetime.now().isoformat(),
+            'data_completeness': calculate_data_completeness(lead_data),
+            'email_generated': bool(email_patterns),
+            'contact_quality': 'High' if (email and email != 'Not found') or (lead_data.get('phone') and lead_data.get('phone') != 'Not found') else 'Low'
         }
-    }
-    
-    # Calculate confidence score
-    confidence = calculate_confidence_score(data, icp_data)
-    
-    lead['ai_analysis'] = {
-        'confidence_score': confidence['percentage'],
-        'grade': confidence['grade'],
-        'matching_criteria': confidence['matches'],
-        'insights': generate_insights(lead, icp_data, confidence),
-        'recommendation': generate_recommendation(confidence['percentage'])
     }
     
     return lead
 
-def generate_insights(lead, icp_data, confidence):
+
+def calculate_data_completeness(lead_data: Dict) -> Dict:
+    """Calculate how complete the lead data is"""
+    total_fields = 0
+    filled_fields = 0
+    
+    key_fields = [
+        'lead_name', 'designation', 'company_name', 'email', 'phone', 
+        'linkedin', 'company_about', 'company_website', 'company_location',
+        'company_size', 'company_industry'
+    ]
+    
+    for field in key_fields:
+        total_fields += 1
+        value = lead_data.get(field, '')
+        if value and value not in ['N/A', 'Not found', '', 'Unknown']:
+            filled_fields += 1
+    
+    percentage = int((filled_fields / total_fields) * 100) if total_fields > 0 else 0
+    
+    return {
+        'percentage': percentage,
+        'filled_fields': filled_fields,
+        'total_fields': total_fields,
+        'status': 'Complete' if percentage >= 80 else 'Partial' if percentage >= 50 else 'Limited'
+    }
+
+def generate_insights(lead_data: Dict, confidence: Dict) -> List[str]:
     """Generate AI insights about the lead"""
     insights = []
     
@@ -298,18 +743,22 @@ def generate_insights(lead, icp_data, confidence):
         insights.append("🎯 Excellent match! This lead closely aligns with your ICP.")
     elif confidence['percentage'] >= 60:
         insights.append("✅ Good match with most key criteria met.")
-    else:
+    elif confidence['percentage'] >= 40:
         insights.append("⚠️ Partial match - review carefully before outreach.")
+    else:
+        insights.append("📋 Low match - may need additional qualification.")
     
-    # Specific insights
     if 'Industry match' in confidence['matches']:
-        insights.append(f"Industry alignment: {lead['company']['industry']}")
+        insights.append(f"🏢 Industry alignment: {lead_data.get('company_industry', 'N/A')}")
     
     if 'Job title match' in confidence['matches']:
-        insights.append(f"Decision-maker identified: {lead['lead']['designation']}")
+        insights.append(f"👤 Decision-maker: {lead_data.get('designation', 'N/A')}")
     
-    if lead['lead']['contact_details']['email'] != 'Not found':
+    if 'Email available' in confidence['matches']:
         insights.append("✉️ Direct contact information available")
+    
+    if 'LinkedIn available' in confidence['matches']:
+        insights.append("💼 LinkedIn profile available for outreach")
     
     return insights
 
@@ -324,97 +773,48 @@ def generate_recommendation(score):
     else:
         return "RESEARCH: Requires additional qualification"
 
-def create_sample_leads_from_search(icp_data):
-    """Create realistic sample leads when actual search fails"""
-    sample_leads = [
-        {
-            'lead_name': 'Sarah Johnson',
-            'designation': icp_data['target_job_title'].split(',')[0].strip(),
-            'company_name': 'TechVentures Inc',
-            'source': 'LinkedIn Search',
-            'email': 'sarah.johnson@techventures.com',
-            'phone': '+1-415-555-0123',
-            'linkedin': 'linkedin.com/in/sarahjohnson',
-            'company_about': f'Leading company in {icp_data["industry"]} industry focused on innovation',
-            'company_industry': icp_data['industry'],
-            'company_size': icp_data['company_size'],
-            'company_location': icp_data['geographic_region'].split(',')[0].strip(),
-            'company_website': 'www.techventures.com',
-            'company_email': 'contact@techventures.com',
-            'company_phone': '+1-415-555-0100',
-            'company_address': '123 Innovation Drive',
-            'company_valuation': '50000000',
-            'company_tech': icp_data['technology_used']
-        },
-        {
-            'lead_name': 'Michael Chen',
-            'designation': icp_data['target_job_title'].split(',')[0].strip(),
-            'company_name': 'Digital Dynamics',
-            'source': 'Web Search',
-            'email': 'mchen@digitaldynamics.io',
-            'phone': 'Not found',
-            'linkedin': 'linkedin.com/in/michaelchen',
-            'company_about': f'Innovative {icp_data["industry"]} solutions provider',
-            'company_industry': icp_data['industry'],
-            'company_size': icp_data['company_size'],
-            'company_location': icp_data['geographic_region'].split(',')[0].strip(),
-            'company_website': 'www.digitaldynamics.io',
-            'company_email': 'info@digitaldynamics.io',
-            'company_phone': 'Not found',
-            'company_address': 'Not found',
-            'company_valuation': '25000000',
-            'company_tech': icp_data['technology_used']
-        },
-        {
-            'lead_name': 'Emily Rodriguez',
-            'designation': icp_data['target_job_title'].split(',')[0].strip(),
-            'company_name': 'Innovate Solutions',
-            'source': 'Company Website',
-            'email': 'e.rodriguez@innovatesolutions.com',
-            'phone': '+1-212-555-0156',
-            'linkedin': 'linkedin.com/in/emilyrodriguez',
-            'company_about': f'Transforming {icp_data["industry"]} through technology',
-            'company_industry': icp_data['industry'],
-            'company_size': icp_data['company_size'],
-            'company_location': icp_data['geographic_region'].split(',')[0].strip(),
-            'company_website': 'www.innovatesolutions.com',
-            'company_email': 'hello@innovatesolutions.com',
-            'company_phone': '+1-212-555-0150',
-            'company_address': '456 Tech Plaza',
-            'company_valuation': '75000000',
-            'company_tech': icp_data['technology_used']
-        }
-    ]
-    
-    structured_leads = []
-    for sample in sample_leads:
-        structured_leads.append(structure_lead_data(sample, icp_data))
-    
-    return structured_leads
-
 @app.route('/api/search-leads', methods=['POST'])
 def search_leads_endpoint():
     """Endpoint to search for leads"""
     try:
+        print("\n" + "="*60)
+        print("🔔 RECEIVED /api/search-leads REQUEST")
+        print("="*60)
+        
         icp_data = request.json
-        print(f"\n📋 Received ICP request: {icp_data['icp_name']}")
+        print(f"📋 Request data: {json.dumps(icp_data, indent=2)}")
+        print(f"\n📋 ICP Name: {icp_data.get('icp_name', 'N/A')}")
         
         # Validate required fields
         required_fields = ['icp_name', 'company_size', 'industry', 'target_job_title', 
                           'geographic_region', 'technology_used', 'pain_points', 
                           'min_budget', 'max_budget']
         
-        for field in required_fields:
-            if field not in icp_data:
-                return jsonify({'error': f'Missing required field: {field}'}), 400
+        missing_fields = [field for field in required_fields if field not in icp_data]
+        if missing_fields:
+            error_msg = f'Missing required fields: {", ".join(missing_fields)}'
+            print(f"❌ Validation Error: {error_msg}")
+            return jsonify({'error': error_msg}), 400
         
-        # Run async search
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        leads = loop.run_until_complete(search_leads(icp_data))
-        loop.close()
+        print("✅ All required fields present")
+        print("🚀 Starting lead search...")
         
-        print(f"✅ Returning {len(leads)} leads to frontend")
+        # Run async search with proper loop management
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            leads = loop.run_until_complete(search_leads(icp_data))
+        finally:
+            # Clean up resources
+            if mcp_client:
+                try:
+                    loop.run_until_complete(mcp_client.close())
+                except:
+                    pass
+            loop.close()
+        
+        print(f"\n✅ Search completed! Returning {len(leads)} leads to frontend")
+        print("="*60 + "\n")
         
         return jsonify({
             'success': True,
@@ -425,19 +825,21 @@ def search_leads_endpoint():
         })
     
     except Exception as e:
-        print(f"❌ API Error: {str(e)}")
+        print(f"\n❌ API Error: {str(e)}")
         import traceback
         traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        print("="*60 + "\n")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
     return jsonify({
         'status': 'healthy',
-        'mcp_initialized': agent is not None,
-        'bright_data_configured': bool(os.getenv('BRIGHT_DATA_API_TOKEN')),
-        'openai_configured': bool(os.getenv('OPENAI_API_KEY'))
+        'mcp_client_initialized': mcp_client is not None,
+        'openai_client_ready': openai_client is not None,
+        'bright_data_configured': bool(BRIGHT_DATA_API_TOKEN),
+        'openai_configured': bool(OPENAI_API_KEY)
     })
 
 
@@ -448,44 +850,37 @@ def serve_index():
 
 if __name__ == '__main__':
     print("=" * 60)
-    print("🚀 Starting Lead Generation Server")
+    print("🚀 Lead Generation Server with OpenAI + Bright Data MCP")
     print("=" * 60)
     
-    # Check environment variables
-    if not os.getenv('BRIGHT_DATA_API_TOKEN'):
-        print("⚠️  WARNING: BRIGHT_DATA_API_TOKEN not set!")
-    if not os.getenv('OPENAI_API_KEY'):
-        print("⚠️  WARNING: OPENAI_API_KEY not set!")
+    # Check configuration
+    print("\n🔧 Configuration Check:")
+    print(f"  BRIGHT_DATA_API_TOKEN: {'✅ Set' if BRIGHT_DATA_API_TOKEN else '❌ Not set'}")
+    print(f"  OPENAI_API_KEY: {'✅ Set' if OPENAI_API_KEY else '❌ Not set'}")
+    print(f"  OpenAI Client: {'✅ Ready' if openai_client else '❌ Not initialized'}")
     
-    # Initialize MCP on startup but DO NOT block server startup if initialization fails.
-    print("\n🔧 Initializing MCP Agent (best-effort)...")
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        success = loop.run_until_complete(initialize_mcp())
-    except Exception as e:
-        print(f"❌ Exception during MCP init: {e}")
-        success = False
-    finally:
-        loop.close()
-
-    if not success:
-        print("\n⚠️  MCP Agent did not initialize. The server will still start and serve sample leads.")
-        print("Set BRIGHT_DATA_API_TOKEN and OPENAI_API_KEY in environment to enable full functionality.")
-
+    if not BRIGHT_DATA_API_TOKEN or not OPENAI_API_KEY:
+        print("\n⚠️  WARNING: Required API tokens not configured!")
+        print("Please set BRIGHT_DATA_API_TOKEN and OPENAI_API_KEY in your .env file.")
+        print("The server will start but lead search will not work.\n")
+    else:
+        # Initialize MCP client (will be fully initialized on first use)
+        mcp_client = BrightDataMCP(BRIGHT_DATA_API_TOKEN)
+        print("\n✅ MCP Client ready!")
+    
     print("\n✅ Server starting")
     print("📡 Backend: http://localhost:5000")
-    print("🌐 Frontend: http://localhost:5000 (served at /)")
+    print("🌐 Frontend: http://localhost:5000")
     print("=" * 60)
-
-    # Auto-open the frontend in the default browser once the server is bound.
+    
+    # Auto-open browser
     def _open_browser():
         try:
             webbrowser.open('http://localhost:5000')
-        except Exception:
+        except:
             pass
-
+    
     threading.Timer(1.0, _open_browser).start()
-
-    # Disable the reloader to avoid opening multiple browser tabs
+    
+    # Start Flask server
     app.run(debug=True, host='0.0.0.0', port=5000, use_reloader=False)
