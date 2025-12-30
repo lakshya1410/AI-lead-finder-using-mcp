@@ -15,7 +15,16 @@ from typing import Optional, List, Dict, Any
 load_dotenv()
 
 app = Flask(__name__, static_folder='static')
-CORS(app)
+
+# Configure CORS with proper settings
+CORS(app, resources={
+    r"/api/*": {
+        "origins": "*",
+        "methods": ["GET", "POST", "OPTIONS"],
+        "allow_headers": ["Content-Type"],
+        "supports_credentials": False
+    }
+})
 
 # Global variables
 mcp_client = None
@@ -781,7 +790,18 @@ def search_leads_endpoint():
         print("🔔 RECEIVED /api/search-leads REQUEST")
         print("="*60)
         
-        icp_data = request.json
+        # Check if request has JSON data
+        if not request.is_json:
+            error_msg = 'Request must be JSON'
+            print(f"❌ Error: {error_msg}")
+            return jsonify({'success': False, 'error': error_msg}), 400
+        
+        icp_data = request.get_json()
+        if not icp_data:
+            error_msg = 'Empty request body'
+            print(f"❌ Error: {error_msg}")
+            return jsonify({'success': False, 'error': error_msg}), 400
+            
         print(f"📋 Request data: {json.dumps(icp_data, indent=2)}")
         print(f"\n📋 ICP Name: {icp_data.get('icp_name', 'N/A')}")
         
@@ -794,7 +814,7 @@ def search_leads_endpoint():
         if missing_fields:
             error_msg = f'Missing required fields: {", ".join(missing_fields)}'
             print(f"❌ Validation Error: {error_msg}")
-            return jsonify({'error': error_msg}), 400
+            return jsonify({'success': False, 'error': error_msg}), 400
         
         print("✅ All required fields present")
         print("🚀 Starting lead search...")
@@ -847,6 +867,41 @@ def health_check():
 def serve_index():
     """Serve the frontend index.html from the static folder"""
     return send_from_directory('static', 'index.html')
+
+@app.errorhandler(404)
+def not_found(error):
+    """Handle 404 errors with JSON response for API routes"""
+    if request.path.startswith('/api/'):
+        return jsonify({'success': False, 'error': 'API endpoint not found'}), 404
+    return send_from_directory('static', 'index.html')
+
+@app.errorhandler(500)
+def internal_error(error):
+    """Handle 500 errors with JSON response"""
+    print(f"❌ Internal Server Error: {str(error)}")
+    import traceback
+    traceback.print_exc()
+    return jsonify({'success': False, 'error': 'Internal server error. Please check server logs.'}), 500
+
+@app.errorhandler(Exception)
+def handle_exception(error):
+    """Handle all unhandled exceptions"""
+    print(f"❌ Unhandled Exception: {str(error)}")
+    import traceback
+    traceback.print_exc()
+    
+    # Check if this is an API request
+    if request.path.startswith('/api/'):
+        return jsonify({
+            'success': False,
+            'error': f'Server error: {str(error)}'
+        }), 500
+    
+    # For non-API requests, return generic error page
+    return jsonify({
+        'success': False,
+        'error': 'An unexpected error occurred'
+    }), 500
 
 if __name__ == '__main__':
     print("=" * 60)

@@ -432,7 +432,34 @@ OPENAI_API_KEY=sk-proj-key</code></pre>
                     body: JSON.stringify(icpData)
                 });
 
-                const data = await response.json();
+                // Check if response is ok
+                if (!response.ok) {
+                    const contentType = response.headers.get('content-type');
+                    let errorMessage = `Server error: ${response.status} ${response.statusText}`;
+                    
+                    // Try to parse JSON error if available
+                    if (contentType && contentType.includes('application/json')) {
+                        try {
+                            const errorData = await response.json();
+                            errorMessage = errorData.error || errorMessage;
+                        } catch (e) {
+                            // If JSON parsing fails, keep the default error message
+                        }
+                    } else {
+                        // If response is HTML, provide a better error message
+                        errorMessage = 'Server returned an unexpected response. Please check your API configuration and ensure the server is running properly.';
+                    }
+                    
+                    throw new Error(errorMessage);
+                }
+
+                // Parse JSON response
+                let data;
+                try {
+                    data = await response.json();
+                } catch (parseError) {
+                    throw new Error('Server returned invalid JSON. Please check server logs for errors.');
+                }
 
                 if (data.success) {
                     displayResults(data);
@@ -440,6 +467,7 @@ OPENAI_API_KEY=sk-proj-key</code></pre>
                     throw new Error(data.error || 'Search failed');
                 }
             } catch (error) {
+                console.error('Search error:', error);
                 resultsContent.innerHTML = `
                     <div class="border border-red-500 bg-red-50 p-8 text-center max-w-lg mx-auto mt-20 shadow-hard">
                         <div class="w-12 h-12 bg-red-100 text-red-600 mx-auto flex items-center justify-center rounded-full mb-4">!</div>
