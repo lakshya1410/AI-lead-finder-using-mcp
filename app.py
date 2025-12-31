@@ -11,8 +11,18 @@ from openai import OpenAI
 from dotenv import load_dotenv
 from datetime import datetime
 from typing import Optional, List, Dict, Any
+import logging
+import sys
 
 load_dotenv()
+
+# Configure logging for production
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    stream=sys.stdout
+)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__, static_folder='static')
 
@@ -104,21 +114,19 @@ class BrightDataMCP:
                     else:
                         result = await response.json()
                     
-                    print(f"✅ MCP Initialize successful")
+                    logger.info(f"✅ MCP Initialize successful")
                     if self.session_id:
-                        print(f"   Session ID: {self.session_id[:20]}...")
+                        logger.info(f"   Session ID: {self.session_id[:20]}...")
                     
                     await self._send_initialized()
                     return True
                 else:
                     error_text = await response.text()
-                    print(f"❌ MCP Initialize failed ({response.status}): {error_text[:300]}")
+                    logger.error(f"❌ MCP Initialize failed ({response.status}): {error_text[:300]}")
                     return False
                     
         except Exception as e:
-            print(f"❌ MCP Initialize error: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error(f"❌ MCP Initialize error: {e}", exc_info=True)
             return False
     
     async def _send_initialized(self):
@@ -184,21 +192,21 @@ class BrightDataMCP:
                         return result
                 else:
                     error_text = await response.text()
-                    print(f"❌ MCP Error ({response.status}): {error_text[:500]}")
+                    logger.error(f"❌ MCP Error ({response.status}): {error_text[:500]}")
                     
                     if response.status == 404 or "session" in error_text.lower():
                         self.session_id = None
-                        print("   Attempting to re-initialize session...")
+                        logger.info("   Attempting to re-initialize session...")
                         if await self.initialize():
                             return await self.call_tool(tool_name, arguments, timeout)
                     
                     return {"error": error_text, "status": response.status}
                     
         except asyncio.TimeoutError:
-            print(f"❌ MCP call timed out after {timeout}s")
+            logger.error(f"❌ MCP call timed out after {timeout}s")
             return {"error": "timeout"}
         except Exception as e:
-            print(f"❌ MCP call failed: {str(e)}")
+            logger.error(f"❌ MCP call failed: {str(e)}")
             return {"error": str(e)}
     
     async def _parse_sse_response(self, response) -> Dict:
@@ -219,7 +227,7 @@ class BrightDataMCP:
     
     async def search_web(self, query: str, count: int = 10) -> List[Dict]:
         """Search the web using Bright Data's search_engine tool"""
-        print(f"🔍 Searching: {query}")
+        logger.info(f"🔍 Searching: {query}")
         
         result = await self.call_tool(
             tool_name="search_engine",
@@ -230,7 +238,7 @@ class BrightDataMCP:
         )
         
         if "error" in result:
-            print(f"❌ Search failed: {result.get('error', 'Unknown error')[:200]}")
+            logger.error(f"❌ Search failed: {result.get('error', 'Unknown error')[:200]}")
             return []
         
         try:
@@ -250,12 +258,12 @@ class BrightDataMCP:
                 return [content] if content else []
             return []
         except Exception as e:
-            print(f"❌ Error parsing search results: {e}")
+            logger.error(f"❌ Error parsing search results: {e}")
             return []
     
     async def scrape_url(self, url: str) -> str:
         """Scrape a URL using Bright Data's scrape_as_markdown tool"""
-        print(f"📄 Scraping: {url}")
+        logger.info(f"📄 Scraping: {url}")
         
         result = await self.call_tool(
             tool_name="scrape_as_markdown",
@@ -263,7 +271,7 @@ class BrightDataMCP:
         )
         
         if "error" in result:
-            print(f"❌ Scrape failed: {result.get('error', 'Unknown error')[:200]}")
+            logger.error(f"❌ Scrape failed: {result.get('error', 'Unknown error')[:200]}")
             return ""
         
         try:
@@ -276,7 +284,7 @@ class BrightDataMCP:
                 return str(content) if content else ""
             return ""
         except Exception as e:
-            print(f"❌ Error parsing scrape results: {e}")
+            logger.error(f"❌ Error parsing scrape results: {e}")
             return ""
 
 def generate_email_patterns(name: str, company_domain: str) -> List[str]:
@@ -434,7 +442,7 @@ async def search_leads_with_mcp(icp_data: Dict) -> List[Dict]:
     
     # Create new client for each search to avoid session issues
     if not BRIGHT_DATA_API_TOKEN:
-        print("❌ BRIGHT_DATA_API_TOKEN not configured")
+        logger.error("❌ BRIGHT_DATA_API_TOKEN not configured")
         return []
     
     # Always create a fresh client
@@ -443,15 +451,15 @@ async def search_leads_with_mcp(icp_data: Dict) -> List[Dict]:
     all_results = []
     queries = build_search_queries(icp_data)
     
-    print(f"\n🔍 Executing {len(queries)} search queries...")
+    logger.info(f"\n🔍 Executing {len(queries)} search queries...")
     
     for query in queries:
         results = await mcp_client.search_web(query, count=15)  # Increased to 15 for more results
         if results:
             all_results.extend(results)
-            print(f"  ✅ Found {len(results)} results for: {query[:50]}...")
+            logger.info(f"  ✅ Found {len(results)} results for: {query[:50]}...")
         else:
-            print(f"  ⚠️ No results for: {query[:50]}...")
+            logger.warning(f"  ⚠️ No results for: {query[:50]}...")
         
         # Small delay between queries to avoid rate limiting
         await asyncio.sleep(0.5)
@@ -462,11 +470,11 @@ async def search_leads_with_mcp(icp_data: Dict) -> List[Dict]:
 def parse_search_results_with_ai(search_results: List[Dict], icp_data: Dict) -> List[Dict]:
     """Use OpenAI to parse search results into structured lead data"""
     if not openai_client:
-        print("❌ OpenAI client not available")
+        logger.error("❌ OpenAI client not available")
         return []
     
     if not search_results:
-        print("⚠️ No search results to parse")
+        logger.warning("⚠️ No search results to parse")
         return []
     
     # Prepare the search results text - increased limit for more detail
@@ -558,7 +566,7 @@ def parse_search_results_with_ai(search_results: List[Dict], icp_data: Dict) -> 
 """
 
     try:
-        print("🤖 Parsing results with OpenAI...")
+        logger.info("🤖 Parsing results with OpenAI...")
         
         response = openai_client.chat.completions.create(
             model="gpt-4o-mini",
@@ -576,43 +584,41 @@ def parse_search_results_with_ai(search_results: List[Dict], icp_data: Dict) -> 
         json_match = re.search(r'\[[\s\S]*\]', response_text)
         if json_match:
             leads_data = json.loads(json_match.group(0))
-            print(f"✅ AI extracted {len(leads_data)} leads with detailed information")
+            logger.info(f"✅ AI extracted {len(leads_data)} leads with detailed information")
             return leads_data
         else:
-            print("⚠️ No valid JSON in AI response")
+            logger.warning("⚠️ No valid JSON in AI response")
             return []
             
     except json.JSONDecodeError as e:
-        print(f"❌ JSON parse error: {e}")
-        print(f"Response preview: {response_text[:500] if 'response_text' in locals() else 'N/A'}")
+        logger.error(f"❌ JSON parse error: {e}")
+        logger.error(f"Response preview: {response_text[:500] if 'response_text' in locals() else 'N/A'}")
         return []
     except Exception as e:
-        print(f"❌ OpenAI error: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"❌ OpenAI error: {e}", exc_info=True)
         return []
 
 
 async def search_leads(icp_data: Dict) -> List[Dict]:
     """Main function to search for leads using MCP + OpenAI"""
-    print("\n" + "=" * 60)
-    print(f"🚀 Starting Lead Search for: {icp_data.get('icp_name', 'Unknown ICP')}")
-    print("=" * 60)
+    logger.info("\n" + "=" * 60)
+    logger.info(f"🚀 Starting Lead Search for: {icp_data.get('icp_name', 'Unknown ICP')}")
+    logger.info("=" * 60)
     
     # Step 1: Search using Bright Data MCP
     search_results = await search_leads_with_mcp(icp_data)
     
     if not search_results:
-        print("❌ No search results from MCP")
+        logger.error("❌ No search results from MCP")
         return []
     
-    print(f"\n📊 Total raw results: {len(search_results)}")
+    logger.info(f"\n📊 Total raw results: {len(search_results)}")
     
     # Step 2: Parse results with OpenAI
     parsed_leads = parse_search_results_with_ai(search_results, icp_data)
     
     if not parsed_leads:
-        print("❌ No leads extracted from search results")
+        logger.error("❌ No leads extracted from search results")
         return []
     
     # Step 3: Structure and score leads
@@ -627,7 +633,7 @@ async def search_leads(icp_data: Dict) -> List[Dict]:
         reverse=True
     )
     
-    print(f"\n✅ Final leads found: {len(structured_leads)}")
+    logger.info(f"\n✅ Final leads found: {len(structured_leads)}")
     return structured_leads
 
 def structure_lead_data(lead_data: Dict, icp_data: Dict) -> Dict:
@@ -788,22 +794,24 @@ def search_leads_endpoint():
     try:
         print("\n" + "="*60)
         print("🔔 RECEIVED /api/search-leads REQUEST")
-        print("="*60)
+        logger.info("="*60)
+        logger.info("🔔 RECEIVED /api/search-leads REQUEST")
+        logger.info("="*60)
         
         # Check if request has JSON data
         if not request.is_json:
             error_msg = 'Request must be JSON'
-            print(f"❌ Error: {error_msg}")
+            logger.error(f"❌ Error: {error_msg}")
             return jsonify({'success': False, 'error': error_msg}), 400
         
         icp_data = request.get_json()
         if not icp_data:
             error_msg = 'Empty request body'
-            print(f"❌ Error: {error_msg}")
+            logger.error(f"❌ Error: {error_msg}")
             return jsonify({'success': False, 'error': error_msg}), 400
             
-        print(f"📋 Request data: {json.dumps(icp_data, indent=2)}")
-        print(f"\n📋 ICP Name: {icp_data.get('icp_name', 'N/A')}")
+        logger.info(f"📋 Request data: {json.dumps(icp_data, indent=2)}")
+        logger.info(f"\n📋 ICP Name: {icp_data.get('icp_name', 'N/A')}")
         
         # Validate required fields
         required_fields = ['icp_name', 'company_size', 'industry', 'target_job_title', 
@@ -813,28 +821,53 @@ def search_leads_endpoint():
         missing_fields = [field for field in required_fields if field not in icp_data]
         if missing_fields:
             error_msg = f'Missing required fields: {", ".join(missing_fields)}'
-            print(f"❌ Validation Error: {error_msg}")
+            logger.error(f"❌ Validation Error: {error_msg}")
             return jsonify({'success': False, 'error': error_msg}), 400
         
-        print("✅ All required fields present")
-        print("🚀 Starting lead search...")
+        logger.info("✅ All required fields present")
+        logger.info("🚀 Starting lead search...")
         
-        # Run async search with proper loop management
+        # Check environment variables
+        if not BRIGHT_DATA_API_TOKEN:
+            error_msg = 'BRIGHT_DATA_API_TOKEN not configured'
+            logger.error(f"❌ {error_msg}")
+            return jsonify({'success': False, 'error': error_msg}), 500
+            
+        if not OPENAI_API_KEY:
+            error_msg = 'OPENAI_API_KEY not configured'
+            logger.error(f"❌ {error_msg}")
+            return jsonify({'success': False, 'error': error_msg}), 500
+        
+        # Run async search with proper loop management for production
+        leads = []
+        loop = None
         try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+            # Try to get existing event loop, create new one if needed
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_closed():
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            
+            # Run the search
             leads = loop.run_until_complete(search_leads(icp_data))
-        finally:
-            # Clean up resources
+            
+            # Clean up MCP client
             if mcp_client:
                 try:
                     loop.run_until_complete(mcp_client.close())
-                except:
-                    pass
-            loop.close()
+                except Exception as cleanup_error:
+                    logger.warning(f"⚠️ Cleanup warning: {cleanup_error}")
+                    
+        except Exception as e:
+            logger.error(f"❌ Search error: {str(e)}", exc_info=True)
+            raise
         
-        print(f"\n✅ Search completed! Returning {len(leads)} leads to frontend")
-        print("="*60 + "\n")
+        logger.info(f"\n✅ Search completed! Returning {len(leads)} leads to frontend")
+        logger.info("="*60 + "\n")
         
         return jsonify({
             'success': True,
@@ -845,12 +878,8 @@ def search_leads_endpoint():
         })
     
     except Exception as e:
-        print(f"\n❌ API Error: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        print("="*60 + "\n")
-        return jsonify({'success': False, 'error': str(e)}), 500
-
+        logger.error(f"\n❌ API Error: {str(e)}", exc_info=True)
+        logger.info
 @app.route('/api/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
@@ -878,17 +907,13 @@ def not_found(error):
 @app.errorhandler(500)
 def internal_error(error):
     """Handle 500 errors with JSON response"""
-    print(f"❌ Internal Server Error: {str(error)}")
-    import traceback
-    traceback.print_exc()
+    logger.error(f"❌ Internal Server Error: {str(error)}", exc_info=True)
     return jsonify({'success': False, 'error': 'Internal server error. Please check server logs.'}), 500
 
 @app.errorhandler(Exception)
 def handle_exception(error):
     """Handle all unhandled exceptions"""
-    print(f"❌ Unhandled Exception: {str(error)}")
-    import traceback
-    traceback.print_exc()
+    logger.error(f"❌ Unhandled Exception: {str(error)}", exc_info=True)
     
     # Check if this is an API request
     if request.path.startswith('/api/'):
